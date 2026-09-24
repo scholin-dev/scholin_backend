@@ -2,14 +2,12 @@
   "$schema": "https://schema.railpack.com",
   "deploy": {
     "aptPackages": [
-      "libpango1.0-0",
-      "libharfbuzz0b",
+      "libpango-1.0-0",
       "libpangoft2-1.0-0",
-      "libglib2.0-0",
-      "libcairo2",
       "libpangocairo-1.0-0",
-      "libgdk-pixbuf2.0-0",
+      "libcairo2",
       "libffi-dev",
+      "libgdk-pixbuf-2.0-0",
       "shared-mime-info",
       "fonts-liberation"
     ]
