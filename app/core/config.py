@@ -34,4 +34,5 @@ class Settings:
     AT_API_KEY: str = os.getenv("AT_API_KEY", "")
 
 settings = Settings()
-print(f"🔧 ACCESS_TOKEN_EXPIRE_MINUTES = {settings.ACCESS_TOKEN_EXPIRE_MINUTES}")  # Add this
+print(f"🔧 ACCESS_TOKEN_EXPIRE_MINUTES = {settings.ACCESS_TOKEN_EXPIRE_MINUTES}")
+print("🔍 DATABASE_URL =", repr(os.environ.get("DATABASE_URL")), flush=True)
