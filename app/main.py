@@ -192,6 +192,8 @@ def get_scheduler_status():
 
 # ========== START APPLICATION ==========
 if __name__ == "__main__":
+    import os
+    print("🔍 DATABASE_URL from env =", repr(os.environ.get("DATABASE_URL")))
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
