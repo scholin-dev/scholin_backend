@@ -21,13 +21,13 @@ class Settings:
     FROM_NAME: str = os.getenv("FROM_NAME", "Eduu School")
     
     # Redis
-    REDIS_HOST: str = "localhost"
+    REDIS_HOST: str = ${{shared.REDISHOST}}
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = ${{shared.REDIS_URL}}
     
     # resend
-    FROM_EMAIL: str = "onboarding@resend.dev"
+    FROM_EMAIL: str = "wiriama6@gmail.com"
     
     # Africa's Talking
     AT_USERNAME: str = os.getenv("AT_USERNAME", "sandbox")
