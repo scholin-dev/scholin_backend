@@ -19,7 +19,7 @@ africastalking.initialize(
     settings.AT_USERNAME,
     settings.AT_API_KEY,
 )
-
+print("🐛 worker.py is being imported", flush=True)
 # Configure Redis broker
 try:
     redis_broker = RedisBroker(url=settings.REDIS_URL)
