@@ -49,7 +49,7 @@ scheduler = BackgroundScheduler()
 
 def auto_expire_assignments():
     """Auto-expire assignments that are past their due date"""
-    from .api.v1.models import Assignment  # Import your Assignment model
+    from .models.user import Assignment
     from sqlalchemy.orm import Session
     
     db = next(get_db())
