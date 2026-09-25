@@ -21,10 +21,10 @@ class Settings:
     FROM_NAME: str = os.getenv("FROM_NAME", "Eduu School")
     
     # Redis
-    REDIS_HOST: str = ${{shared.REDISHOST}}
-    REDIS_PORT: int = 6379
-    REDIS_DB: int = 0
-    REDIS_URL: str = ${{shared.REDIS_URL}}
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     
     # resend
     FROM_EMAIL: str = "wiriama6@gmail.com"
