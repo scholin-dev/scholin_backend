@@ -2846,7 +2846,6 @@ def get_fee_receipt(
             margin-top: 35px;
         }}
         .script {{
-            font-family: "Brush Script MT", cursive;
             font-size: 42px;
             color: #123d7a;
         }}
