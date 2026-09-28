@@ -2881,7 +2881,7 @@ def get_fee_receipt(
 <body>
     <div class="page">
         <!-- Watermark -->
-        <div class="watermark"><img src="http://127.0.0.1:8000/uploads/bg.png" /></div>
+        <div class="watermark"><img src="http://scholin-backend.railway.internal/uploads/bg.png" /></div>
 
         <!-- Top Bar -->
         <div class="topbar"></div>
