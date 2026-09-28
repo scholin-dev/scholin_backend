@@ -2888,7 +2888,7 @@ def get_fee_receipt(
 
         <!-- Header -->
         <div class="header">
-            <div class="logo"><img src="scholin-backend.railway.internal:8080{school.logo}" class="logo" /></div>
+            <div class="logo"><img src="http://scholin-backend.railway.internal:8080{school.logo}" class="logo" /></div>
             <div class="school">
                 <h1 style="align: center";>{school.school_name}</h1>
                 <div class="sub">{school.address}</div>
