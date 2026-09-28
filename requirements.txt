@@ -38,4 +38,4 @@ pandas
 openpyxl
 xlrd
 apscheduler
-docx
+python-docx
