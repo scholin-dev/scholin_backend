@@ -10036,6 +10036,42 @@ async def delete_group(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/my-school")
+def get_my_school(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns the school record for the currently authenticated admin/school user.
+    """
+    # Find the school tied to this user
+    school = None
+
+    # Option A: user has a direct school_id FK
+    school_id = getattr(current_user, "school_id", None)
+
+    # Option B: fall back to school owned by this user (admin_id)
+    if school_id:
+        school = db.query(School).filter(School.id == school_id).first()
+    else:
+        school = db.query(School).filter(School.admin_id == current_user.id).first()
+
+    if not school:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No school found for this user",
+        )
+
+    return {
+        "id": school.id,
+        "school_name": school.name,        # adapt to your column names
+        "address": school.address,
+        "motto": school.motto,
+        "email": getattr(school, "email", None),
+        "phone": getattr(school, "phone", None),
+        "logo_url": getattr(school, "logo", None),
+    }
+
 # Exit group (for non-admin)
 @router.post("/groups/{group_id}/exit", response_model=dict)
 async def exit_group_endpoint(
