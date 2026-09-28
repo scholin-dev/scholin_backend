@@ -2638,7 +2638,7 @@ async def upload_profile_picture(
     
     return {
         "message": f"Picture uploaded for {entity_type[:-1]}",
-        "url": f"http://127.0.0.1:8000/{file_path}",
+        "url": f"http://scholin-backend.railway.internal:8080/{file_path}",
         "bg_removed": remove_bg
     }
 
@@ -2951,7 +2951,7 @@ def get_fee_receipt(
                 <div>AUTHORIZED ADMINISTRATOR SIGNATURE<br>Administrative Officer</div>
             </div>
             <div class="sign">
-                <div><img src="http://127.0.0.1:8000{school.stamp}" class="stamp" /></div>
+                <div><img src="http://scholin-backend.railway.internal:8080{school.stamp}" class="stamp" /></div>
             </div>
         </div>
     </div>
@@ -2995,7 +2995,7 @@ async def upload_school_stamp(
     school.stamp = f"/{file_path}"
     db.commit()
     
-    return {"message": "Stamp uploaded", "url": f"http://127.0.0.1:8000/{file_path}"}
+    return {"message": "Stamp uploaded", "url": f"http://scholin-backend.railway.internal:8080/{file_path}"}
     
 def determine_current_term() -> Tuple[int, str, int]:
     """Determine current term based on month"""
@@ -12258,7 +12258,7 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
     <table class="header-table">
         <tr>
             <td class="logo-section">
-                <div class="logo-placeholder"><img style="width: 70%" src="http://127.0.0.1:8000{school.logo if school.logo else 'S'}"></div>
+                <div class="logo-placeholder"><img style="width: 70%" src="http://scholin-backend.railway.internal:8080{school.logo if school.logo else 'S'}"></div>
             </td>
             <td class="title-section">
                 <div class="school-title">{school.school_name}</div>
