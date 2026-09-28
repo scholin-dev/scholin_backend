@@ -10064,7 +10064,7 @@ def get_my_school(
 
     return {
         "id": school.id,
-        "school_name": school.name,        # adapt to your column names
+        "school_name": school.school_name,
         "address": school.address,
         "motto": school.motto,
         "email": getattr(school, "email", None),
