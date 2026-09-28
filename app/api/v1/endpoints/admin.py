@@ -2881,14 +2881,14 @@ def get_fee_receipt(
 <body>
     <div class="page">
         <!-- Watermark -->
-        <div class="watermark"><img src="http://scholin-backend.railway.internal/uploads/bg.png" /></div>
+        <div class="watermark"><img src="http://scholin-backend.railway.internal:8080/uploads/bg.png" /></div>
 
         <!-- Top Bar -->
         <div class="topbar"></div>
 
         <!-- Header -->
         <div class="header">
-            <div class="logo"><img src="scholin-backend.railway.internal{school.logo}" class="logo" /></div>
+            <div class="logo"><img src="scholin-backend.railway.internal:8080{school.logo}" class="logo" /></div>
             <div class="school">
                 <h1 style="align: center";>{school.school_name}</h1>
                 <div class="sub">{school.address}</div>
