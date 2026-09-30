@@ -3975,6 +3975,7 @@ def get_student_performance(
     # Access control
     # ----------------------------
     if user.role == "student":
+        print(f"Role: {user.role} - {user.id}")
         if student.user_id != user.id:
             raise HTTPException(403, "You can only view your own performance.")
 
