@@ -3953,132 +3953,111 @@ def get_student_dashboard(
 
 @router.get("/student-performance/{student_id}")
 def get_student_performance(
+    student_id: int,
     term: Optional[str] = Query(None),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Student performance."""
+    """Student performance — mirrors class-results filtering logic."""
 
     # ----------------------------
-    # Find student
+    # Find student (accept either Student.id or user_id)
     # ----------------------------
-    student_id = user.id
-    student = db.query(Student).filter(
-        Student.user_id == student_id
-    ).first()
+    student = db.query(Student).filter(Student.id == student_id).first()
 
     if not student:
-        raise HTTPException(
-            status_code=404,
-            detail="Student not found"
-        )
+        student = db.query(Student).filter(Student.user_id == student_id).first()
+
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
 
     # ----------------------------
-    # Access Control
+    # Access control
     # ----------------------------
-
-    # Student
     if user.role == "student":
-        if user.id != student_id:
-            raise HTTPException(
-                status_code=403,
-                detail="You can only view your own performance."
-            )
+        if student.user_id != user.id:
+            raise HTTPException(403, "You can only view your own performance.")
 
-    # Parent
     elif user.role == "parent":
-
-        parent = db.query(Parent).filter(
-            Parent.user_id == user.id
-        ).first()
-
+        parent = db.query(Parent).filter(Parent.user_id == user.id).first()
         if not parent:
-            raise HTTPException(
-                status_code=403,
-                detail="Parent profile not found."
-            )
-
+            raise HTTPException(403, "Parent profile not found.")
         relation = db.query(ParentStudent).filter(
             ParentStudent.parent_id == parent.id,
-            ParentStudent.student_id == student.id
+            ParentStudent.student_id == student.id,
         ).first()
-
         if not relation:
-            raise HTTPException(
-                status_code=403,
-                detail="You can only access your own children's performance."
-            )
+            raise HTTPException(403, "You can only access your own children's performance.")
 
-    # Admin
-    elif user.role == "admin":
-
+    elif user.role in ("admin", "school"):
         if student.school_id != user.school_id:
-            raise HTTPException(
-                status_code=403,
-                detail="You can only access students in your school."
-            )
+            raise HTTPException(403, "You can only access students in your school.")
 
     else:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied."
-        )
+        raise HTTPException(403, "Access denied.")
 
     # ----------------------------
-    # Student user
+    # Student user record
     # ----------------------------
-    student_user = db.query(User).filter(
-        User.id == student.user_id
-    ).first()
-
+    student_user = db.query(User).filter(User.id == student.user_id).first()
     if not student_user:
-        raise HTTPException(
-            status_code=404,
-            detail="Student user not found."
-        )
+        raise HTTPException(404, "Student user not found.")
 
     # ----------------------------
-    # Performance
+    # All terms — same filter as class-results
     # ----------------------------
-    query = db.query(StudentPerformance).filter(
-        StudentPerformance.student_id == student.user_id
+    all_terms_result = (
+        db.query(StudentPerformance.term)
+        .filter(
+            StudentPerformance.student_id == student.id,   # ✅ Student.id
+            StudentPerformance.score > 0,                   # ✅ skip missed
+        )
+        .distinct()
+        .order_by(StudentPerformance.term.desc())
+        .all()
     )
-    
-    all_terms_result = db.query(StudentPerformance.term).filter(
-        StudentPerformance.student_id == student.user_id
-    ).order_by(StudentPerformance.term.desc()).all()
-    
-    all_terms = [t[0] for t in all_terms_result] if all_terms_result else []
-    unique_terms = list(dict.fromkeys(all_terms))
+    unique_terms = [t[0] for t in all_terms_result if t[0]]
+
     if term is None:
         term = unique_terms[0] if unique_terms else None
 
+    # ----------------------------
+    # Fetch rows for selected term
+    # ----------------------------
+    query = db.query(StudentPerformance).filter(
+        StudentPerformance.student_id == student.id,
+        StudentPerformance.score > 0,
+    )
     if term:
-        query = query.filter(
-            StudentPerformance.term == term
-        )
+        query = query.filter(StudentPerformance.term == term)
 
     performances = query.order_by(
-        StudentPerformance.created_at.desc()
+        StudentPerformance.subject.asc(),
+        StudentPerformance.created_at.asc(),
     ).all()
 
-    terms_dict = {}
+    # ----------------------------
+    # Build term → [assessments]
+    # ----------------------------
+    terms_dict: dict[str, list[dict]] = {}
 
     for p in performances:
         terms_dict.setdefault(p.term, []).append({
             "subject": p.subject,
             "score": p.score,
             "class": p.class_id,
-            "assessment": p.assessment
+            "assessment": p.assessment,
         })
 
+    # ----------------------------
+    # Term averages
+    # ----------------------------
     term_averages = {}
-
-    for term_name, subjects in terms_dict.items():
-        term_averages[term_name] = round(
-            sum(s["score"] for s in subjects) / len(subjects),
-            1
-        )
+    for t, subjects in terms_dict.items():
+        if subjects:
+            term_averages[t] = round(
+                sum(s["score"] for s in subjects) / len(subjects), 1
+            )
 
     overall_average = (
         round(sum(term_averages.values()) / len(term_averages), 1)
