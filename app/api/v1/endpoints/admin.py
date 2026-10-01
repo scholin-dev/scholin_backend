@@ -3959,14 +3959,10 @@ def get_student_performance(
     db: Session = Depends(get_db),
 ):
     """Student performance — mirrors class-results filtering logic."""
+    if not user:
+        return HTTPException(status_code=403, detail="Not Authorized")
 
-    # ----------------------------
-    # Find student (accept either Student.id or user_id)
-    # ----------------------------
-    student = db.query(Student).filter(Student.id == student_id).first()
-
-    if not student:
-        student = db.query(Student).filter(Student.user_id == student_id).first()
+    student = db.query(Student).filter(Student.user_id == student_id).first()
 
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
