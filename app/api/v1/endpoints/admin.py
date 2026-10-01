@@ -3960,10 +3960,12 @@ def get_student_performance(
 ):
     """Student performance — mirrors class-results filtering logic."""
     if not user:
-        return HTTPException(status_code=403, detail="Not Authorized")
+        raise HTTPException(status_code=403, detail="Not Authorized")
 
+    # Look up by user_id first (client sends user_id), fall back to Student.id
     student = db.query(Student).filter(Student.user_id == student_id).first()
-
+    if not student:
+        student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -3971,7 +3973,6 @@ def get_student_performance(
     # Access control
     # ----------------------------
     if user.role == "student":
-        print(f"Role: {user.role} - {user.id}")
         if student.user_id != user.id:
             raise HTTPException(403, "You can only view your own performance.")
 
@@ -4001,13 +4002,13 @@ def get_student_performance(
         raise HTTPException(404, "Student user not found.")
 
     # ----------------------------
-    # All terms — same filter as class-results
+    # All terms
     # ----------------------------
     all_terms_result = (
         db.query(StudentPerformance.term)
         .filter(
-            StudentPerformance.student_id == student.id,   # ✅ Student.id
-            StudentPerformance.score > 0,                   # ✅ skip missed
+            StudentPerformance.student_id == student.id,
+            StudentPerformance.score > 0,
         )
         .distinct()
         .order_by(StudentPerformance.term.desc())
@@ -4037,7 +4038,6 @@ def get_student_performance(
     # Build term → [assessments]
     # ----------------------------
     terms_dict: dict[str, list[dict]] = {}
-
     for p in performances:
         terms_dict.setdefault(p.term, []).append({
             "subject": p.subject,
@@ -4047,19 +4047,28 @@ def get_student_performance(
         })
 
     # ----------------------------
-    # Term averages
+    # Term averages + term grades
     # ----------------------------
-    term_averages = {}
+    term_averages: dict[str, float] = {}
     for t, subjects in terms_dict.items():
         if subjects:
             term_averages[t] = round(
                 sum(s["score"] for s in subjects) / len(subjects), 1
             )
 
+    term_grades = {
+        t: _grade_from_percent(avg)
+        for t, avg in term_averages.items()
+    }
+
+    # ----------------------------
+    # Overall average + overall grade
+    # ----------------------------
     overall_average = (
         round(sum(term_averages.values()) / len(term_averages), 1)
         if term_averages else 0
     )
+    overall_grade = _grade_from_percent(overall_average) if term_averages else "—"
 
     return {
         "student": {
@@ -4070,7 +4079,9 @@ def get_student_performance(
         "all_terms": unique_terms,
         "term": terms_dict,
         "term_averages": term_averages,
+        "term_grades": term_grades,
         "overall_average": overall_average,
+        "overall_grade": overall_grade,
     }
 
 @router.get("/student-assignments/{student_id}")
