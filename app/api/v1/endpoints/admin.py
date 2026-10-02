@@ -10767,7 +10767,6 @@ async def check_book_access(
         "reason": "purchased" if purchase else "not_purchased",
         "purchase_id": purchase.id if purchase else None,
     }
-    }
     
 @router.get("/books/purchases/{purchase_id}/status")
 async def book_purchase_status(
