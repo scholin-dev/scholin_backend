@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Header, Body
 from sqlalchemy.orm import Session
 
 from ....core.database import get_db
-from ....core.deps import get_current_user
+from ....core.session_auth import get_current_user
 from ....models.user import User, School, SmsTopup, BookPurchase, Book
 
 router = APIRouter(prefix="/paystack", tags=["paystack"])
