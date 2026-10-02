@@ -97,45 +97,41 @@ async def paystack_initialize(
     # ── Call Paystack ─────────────────────────────────────────
     payload = {
         "email": user.email or f"user{user.id}@scholin.ke",
-        "amount": int(amount * 100),  # KES → kobo
+        "amount": int(amount * 100),
         "reference": reference,
         "currency": "KES",
+        "mobile_money": {
+            "phone": phone_number,
+            "provider": "mpesa"
+        },
         "metadata": {
             "purpose": purpose,
             "user_id": user.id,
             "pending_id": pending_id,
-            "school_id": user.school_id,
         },
     }
-    if callback_url:
-        payload["callback_url"] = callback_url
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            f"{_paystack_base()}/charge",  # <--- CHANGED from /transaction/initialize
+            json=payload,
+            headers={...},
+        )
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{_paystack_base()}/transaction/initialize",
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {_paystack_secret()}",
-                    "Content-Type": "application/json",
-                },
-            )
-    except httpx.TimeoutException:
-        _mark_failed(db, purpose, pending_id, "Paystack timeout")
-        raise HTTPException(504, "Paystack request timed out")
-    except httpx.RequestError as e:
-        _mark_failed(db, purpose, pending_id, f"Network error: {e}")
-        raise HTTPException(502, "Could not reach Paystack")
-
+    # 3. Handle the different response
     result = response.json()
 
-    if response.status_code != 200 or not result.get("status"):
-        _mark_failed(db, purpose, pending_id,
-                     str(result.get("message") or result)[:500])
-        raise HTTPException(502, {
-            "message": "Paystack initialize failed",
-            "response": result,
-        })
+    if response.status_code == 200 and result.get("status"):
+        data = result["data"]
+        
+        # Paystack returns "pay_offline" when the STK push is sent
+        if data.get("status") == "pay_offline":
+            return {
+                "success": True,
+                "status": "pay_offline",
+                "message": data.get("display_text") or "STK push sent. Enter PIN on your phone.",
+                "reference": reference,
+                "pending_id": pending_id,
+            }
 
     data = result["data"]
 
