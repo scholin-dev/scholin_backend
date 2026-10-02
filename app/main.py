@@ -1,206 +1,187 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from datetime import datetime
+import os
+import threading
+
 from .core.config import settings
 from .core.database import engine, Base, get_db
 from .api.v1.routes import api_router
-import multiprocessing, uvicorn, threading
-from app.worker import run_worker
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-from app.scheduler import start_scheduler, stop_scheduler
-from datetime import datetime
-import os
+from .core.deps import require_admin  # see note below
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+# ── Env detection ─────────────────────────────────────────────
+IS_PROD = os.getenv("ENV", "dev").lower() == "prod"
+DOCS_USER = os.getenv("DOCS_USER")
+DOCS_PASS = os.getenv("DOCS_PASS")
 
-# Initialize app
-app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.APP_VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
-
-@app.on_event("startup")
-def _start():
-    start_scheduler()
-
-@app.on_event("shutdown")
-def _stop():
-    stop_scheduler()
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Change to specific origins in production
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include API routes with version prefix
-app.include_router(api_router, prefix=f"/api/{settings.APP_VERSION}")
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
-# ========== APSCHEDULER SETUP ==========
+# ── Scheduler ─────────────────────────────────────────────────
 scheduler = BackgroundScheduler()
 
+
 def auto_expire_assignments():
-    """Auto-expire assignments that are past their due date"""
+    """Auto-expire assignments past their due date."""
     from .models.user import Assignment
-    from sqlalchemy.orm import Session
-    
+
     db = next(get_db())
     try:
         now = datetime.utcnow()
-        
-        # Get all active assignments with due dates
         assignments = db.query(Assignment).filter(
             Assignment.status == "Active",
             Assignment.due_date.isnot(None),
-            Assignment.due_time.isnot(None)
+            Assignment.due_time.isnot(None),
         ).all()
-        
+
         updated = 0
-        for assignment in assignments:
+        for a in assignments:
             try:
-                # Parse due date "DD/MM/YYYY"
-                date_parts = assignment.due_date.split('/')
-                # Parse due time "HH:MM"
-                time_parts = assignment.due_time.split(':')
-                
-                if len(date_parts) == 3:
-                    day = int(date_parts[0])
-                    month = int(date_parts[1])
-                    year = int(date_parts[2])
-                    
-                    hour = int(time_parts[0]) if time_parts else 23
-                    minute = int(time_parts[1]) if len(time_parts) > 1 else 59
-                    
-                    due_datetime = datetime(year, month, day, hour, minute)
-                    
-                    if now > due_datetime:
-                        assignment.status = "Expired"
+                d = a.due_date.split('/')
+                t = a.due_time.split(':')
+                if len(d) == 3:
+                    due = datetime(
+                        int(d[2]), int(d[1]), int(d[0]),
+                        int(t[0]) if t else 23,
+                        int(t[1]) if len(t) > 1 else 59,
+                    )
+                    if now > due:
+                        a.status = "Expired"
                         updated += 1
-                        print(f"⏰ Expired: {assignment.title} (was due {assignment.due_date} {assignment.due_time})")
             except Exception as e:
-                print(f"❌ Error parsing date for assignment {assignment.id}: {e}")
-        
-        if updated > 0:
+                print(f"❌ Parse error for assignment {a.id}: {e}")
+
+        if updated:
             db.commit()
             print(f"✅ Auto-expired {updated} assignments at {now}")
-    
     except Exception as e:
-        print(f"❌ Error in auto-expire: {e}")
+        print(f"❌ auto-expire error: {e}")
         db.rollback()
     finally:
         db.close()
 
 
 def start_scheduler():
-    """Start the APScheduler for auto-expiring assignments"""
-    try:
-        scheduler.add_job(
-            auto_expire_assignments,
-            trigger=IntervalTrigger(minutes=120),  # Run every 1 minute
-            id='auto_expire_assignments',
-            replace_existing=True,
-            max_instances=1  # Prevent overlapping runs
-        )
-        scheduler.start()
-        print("✅ Auto-expire scheduler started (runs every 1 minute)")
-    except Exception as e:
-        print(f"❌ Failed to start scheduler: {e}")
+    if scheduler.running:
+        return
+    scheduler.add_job(
+        auto_expire_assignments,
+        trigger=IntervalTrigger(minutes=120),  # every 2 hours
+        id='auto_expire_assignments',
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.start()
+    print("✅ Scheduler started (every 2 hours)")
 
 
 def stop_scheduler():
-    """Stop the scheduler"""
     if scheduler.running:
         scheduler.shutdown()
         print("✅ Scheduler stopped")
 
-# ========== START WORKER ==========
+
 def start_worker():
-    """Start the message queue worker in a background thread"""
     from .worker import run_worker
-    worker_thread = threading.Thread(target=run_worker, daemon=True)
-    worker_thread.start()
-    print("✅ Message Queue Worker started in background")
+    threading.Thread(target=run_worker, daemon=True).start()
+    print("✅ Worker started")
 
 
-# ========== APP LIFECYCLE EVENTS ==========
-@app.on_event("startup")
-def startup_event():
-    """Run on app startup"""
+# ── Lifespan (replaces on_event) ──────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    Base.metadata.create_all(bind=engine)
     start_worker()
     start_scheduler()
-    print("🚀 Application started with all services")
-
-@app.on_event("shutdown")
-def shutdown_event():
-    """Run on app shutdown"""
+    print("🚀 Application started")
+    yield
+    # Shutdown
     stop_scheduler()
-    print("👋 Application shutdown complete")
+    print("👋 Application shutdown")
 
 
-# Root endpoint
+# ── App ───────────────────────────────────────────────────────
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    lifespan=lifespan,
+    # Hide interactive docs in prod
+    docs_url=None if IS_PROD else "/docs",
+    redoc_url=None if IS_PROD else "/redoc",
+    openapi_url=None if IS_PROD else "/openapi.json",
+)
+
+# ── CORS ──────────────────────────────────────────────────────
+ALLOWED_ORIGINS = [
+    "https://scholin.ke",
+    "https://www.scholin.ke",
+    "https://app.scholin.ke",
+]
+if not IS_PROD:
+    # Dev only
+    ALLOWED_ORIGINS += [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://10.0.2.2:8000",  # Android emulator
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+)
+
+# ── Routes ────────────────────────────────────────────────────
+app.include_router(api_router, prefix=f"/api/{settings.APP_VERSION}")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+
+# ── Root / Health ─────────────────────────────────────────────
 @app.get("/")
 def root():
     return {
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "status": "running",
-        "docs": "/docs"
     }
 
-# Health check
+
 @app.get("/health")
 def health():
     return {
         "status": "healthy",
-        "scheduler_running": scheduler.running if scheduler else False,
-        "active_jobs": len(scheduler.get_jobs()) if scheduler else 0
+        "scheduler_running": scheduler.running,
+        "active_jobs": len(scheduler.get_jobs()),
     }
 
-# Manual trigger endpoint (for testing)
+
+# ── Admin-only manual triggers ────────────────────────────────
 @app.post("/api/v1/admin/expire-assignments")
-def manual_expire_assignments():
-    """Manually trigger assignment expiry check"""
+def manual_expire_assignments(_=Depends(require_admin)):
     auto_expire_assignments()
-    return {"message": "Assignment expiry check completed"}
+    return {"message": "Expiry check completed"}
 
-# Get scheduler status
+
 @app.get("/api/v1/admin/scheduler-status")
-def get_scheduler_status():
-    """Get scheduler status"""
-    jobs = []
-    if scheduler:
-        for job in scheduler.get_jobs():
-            jobs.append({
-                "id": job.id,
-                "next_run": str(job.next_run_time) if job.next_run_time else None,
-                "trigger": str(job.trigger)
-            })
-    
+def get_scheduler_status(_=Depends(require_admin)):
     return {
-        "scheduler_running": scheduler.running if scheduler else False,
-        "jobs": jobs
+        "scheduler_running": scheduler.running,
+        "jobs": [
+            {
+                "id": j.id,
+                "next_run": str(j.next_run_time) if j.next_run_time else None,
+                "trigger": str(j.trigger),
+            }
+            for j in scheduler.get_jobs()
+        ],
     }
 
 
-# ========== START APPLICATION ==========
+# ── Run locally ───────────────────────────────────────────────
 if __name__ == "__main__":
-    import os
-    print("🔍 DATABASE_URL from env =", repr(os.environ.get("DATABASE_URL")))
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=False,
-    )
-else:
-    # When imported by uvicorn, check if we're the main process
-    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-        print("✅ App imported, services will start on startup event")
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=False)
