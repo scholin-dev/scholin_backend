@@ -16,6 +16,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 
+from .paystack import _paystack_secret, _paystack_base, _normalize_phone
 from ....models.message_queue import MessageQueue
 from concurrent.futures import ThreadPoolExecutor
 
@@ -10597,79 +10598,11 @@ async def create_announcement(
     db.refresh(new_ann)
     return {"message": "Success", "id": new_ann.id}
     
-async def _fire_stk_push(
-    phone_number: str,
-    amount: int,
-    account_ref: str,
-    description: str,
-) -> dict:
-    """Fire STK push. Returns Daraja response JSON. Raises HTTPException on failure."""
-    passkey = _mpesa_passkey()
-    callback_url = _mpesa_callback_url()
-    shortcode = _mpesa_shortcode()
-    base_url = _mpesa_base_url()
-    transaction_type = _mpesa_transaction_type()
-
-    if not passkey:
-        raise HTTPException(500, "M-Pesa Passkey not configured")
-    if not callback_url:
-        raise HTTPException(500, "M-Pesa callback URL not configured")
-
-    access_token = await get_mpesa_token()
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    password_string = shortcode + passkey + timestamp
-    stk_password = base64.b64encode(password_string.encode("utf-8")).decode("utf-8")
-
-    payload = {
-        "BusinessShortCode": shortcode,
-        "Password": stk_password,
-        "Timestamp": timestamp,
-        "TransactionType": transaction_type,
-        "Amount": amount,
-        "PartyA": phone_number,
-        "PartyB": shortcode,
-        "PhoneNumber": phone_number,
-        "CallBackURL": callback_url,
-        "AccountReference": account_ref,
-        "TransactionDesc": description,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{base_url}/mpesa/stkpush/v1/processrequest",
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-            )
-    except httpx.TimeoutException:
-        raise HTTPException(504, "M-Pesa STK request timed out")
-    except httpx.RequestError:
-        raise HTTPException(502, "Could not connect to M-Pesa STK service")
-
-    return response.json()
-    
-def _normalize_phone(phone: str) -> str:
-    phone = phone.strip()
-    if phone.startswith("07"):
-        phone = "254" + phone[1:]
-    elif phone.startswith("+254"):
-        phone = phone[1:]
-    elif phone.startswith("7"):
-        phone = "254" + phone
-    if (not phone.startswith("254")
-            or len(phone) != 12
-            or not phone.isdigit()):
-        raise HTTPException(400, "Invalid Kenyan phone number")
-    return phone
-    
 @router.post("/books/{book_id}/purchase")
 async def purchase_book(
     book_id: int,
     phone_number: str = Body(..., embed=True),
-    user=Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if not user:
@@ -10701,48 +10634,110 @@ async def purchase_book(
         raise HTTPException(400, "You already own this book")
 
     phone = _normalize_phone(phone_number)
+    reference = f"PS-BOOK-{user.id}-{int(datetime.utcnow().timestamp())}"
 
+    # Create pending row FIRST
     purchase = BookPurchase(
         user_id=user.id,
         book_id=book_id,
         phone_number=phone,
         amount=amount,
         status="pending",
+        checkout_request_id=reference,   # store Paystack ref here
     )
     db.add(purchase)
     db.commit()
     db.refresh(purchase)
 
-    # Fire STK — pass the purchase id as the reference
-    result = await _fire_stk_push(
-        phone_number=phone,
-        amount=amount,
-        account_ref=f"BOOK-{purchase.id}",
-        description=f"Book purchase #{purchase.id}",
-    )
+    # ── Call Paystack /charge ─────────────────────────────
+    payload = {
+        "email": user.email or f"user{user.id}@scholin.ke",
+        "amount": amount * 100,          # KES → kobo
+        "reference": reference,
+        "currency": "KES",
+        "mobile_money": {
+            "phone": phone,
+            "provider": "mpesa",
+        },
+        "metadata": {
+            "purpose": "book_purchase",
+            "user_id": user.id,
+            "pending_id": purchase.id,
+            "book_id": book_id,
+        },
+    }
 
-    if result.get("ResponseCode") != "0":
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{_paystack_base()}/charge",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {_paystack_secret()}",
+                    "Content-Type": "application/json",
+                },
+            )
+    except httpx.TimeoutException:
         purchase.status = "failed"
-        purchase.result_desc = str(result.get("ResponseDescription") or result)[:500]
+        purchase.result_desc = "Paystack timeout"
+        db.commit()
+        raise HTTPException(504, "Paystack request timed out")
+    except httpx.RequestError as e:
+        purchase.status = "failed"
+        purchase.result_desc = f"Network error: {e}"[:500]
+        db.commit()
+        raise HTTPException(502, "Could not reach Paystack")
+
+    result = response.json()
+
+    if response.status_code != 200 or not result.get("status"):
+        purchase.status = "failed"
+        purchase.result_desc = str(result.get("message") or result)[:500]
         db.commit()
         raise HTTPException(502, {
-            "message": "M-Pesa STK request failed",
+            "message": "Paystack charge failed",
             "response": result,
         })
 
-    purchase.checkout_request_id = result.get("CheckoutRequestID")
-    db.commit()
+    data = result["data"]
+    charge_status = data.get("status")
 
-    return {
-        "success": True,
-        "message": "STK push sent. Enter your PIN.",
-        "purchase_id": purchase.id,
-        "book_id": book_id,
-        "book_title": book.title,
-        "amount": amount,
-        "phone_number": phone,
-        "checkout_request_id": purchase.checkout_request_id,
-    }
+    if charge_status == "pay_offline":
+        return {
+            "success": True,
+            "status": "pay_offline",
+            "message": data.get("display_text")
+                or "STK push sent. Enter your M-Pesa PIN to complete.",
+            "purchase_id": purchase.id,
+            "book_id": book_id,
+            "book_title": book.title,
+            "amount": amount,
+            "phone_number": phone,
+            "reference": reference,
+        }
+
+    if charge_status == "success":
+        purchase.status = "success"
+        purchase.mpesa_receipt = data.get("reference")
+        purchase.completed_at = datetime.utcnow()
+        db.commit()
+        return {
+            "success": True,
+            "status": "success",
+            "purchase_id": purchase.id,
+            "book_id": book_id,
+            "book_title": book.title,
+            "amount": amount,
+            "reference": reference,
+        }
+
+    purchase.status = "failed"
+    purchase.result_desc = str(data)[:500]
+    db.commit()
+    raise HTTPException(502, {
+        "message": f"Charge status: {charge_status}",
+        "response": result,
+    })
     
 @router.get("/books/{book_id}/access")
 async def check_book_access(
@@ -10772,6 +10767,7 @@ async def check_book_access(
         "reason": "purchased" if purchase else "not_purchased",
         "purchase_id": purchase.id if purchase else None,
     }
+    }
     
 @router.get("/books/purchases/{purchase_id}/status")
 async def book_purchase_status(
@@ -10786,6 +10782,23 @@ async def book_purchase_status(
     )
     if not purchase:
         raise HTTPException(404, "Purchase not found")
+
+    # If still pending and we have a reference, verify with Paystack
+    if purchase.status == "pending" and purchase.checkout_request_id:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get(
+                    f"{_paystack_base()}/transaction/verify/{purchase.checkout_request_id}",
+                    headers={"Authorization": f"Bearer {_paystack_secret()}"},
+                )
+            verify = r.json()
+            if verify.get("status") and verify.get("data", {}).get("status") == "success":
+                purchase.status = "success"
+                purchase.mpesa_receipt = verify["data"].get("reference")
+                purchase.completed_at = datetime.utcnow()
+                db.commit()
+        except Exception:
+            pass  # keep pending on network failure
 
     return {
         "purchase_id": purchase.id,
