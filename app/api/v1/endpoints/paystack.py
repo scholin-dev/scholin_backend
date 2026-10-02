@@ -112,38 +112,61 @@ async def paystack_initialize(
     }
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            f"{_paystack_base()}/charge",  # <--- CHANGED from /transaction/initialize
+            f"{_paystack_base()}/charge",
             json=payload,
-            headers={...},
+            headers={
+                "Authorization": f"Bearer {_paystack_secret()}",
+                "Content-Type": "application/json",
+            },
         )
 
-    # 3. Handle the different response
-    result = response.json()
+        result = response.json()
 
-    if response.status_code == 200 and result.get("status"):
+        # Handle Paystack API-level failure
+        if response.status_code != 200 or not result.get("status"):
+            _mark_failed(
+                db, purpose, pending_id,
+                str(result.get("message") or result)[:500],
+            )
+            raise HTTPException(502, {
+                "message": "Paystack charge failed",
+                "response": result,
+            })
+
         data = result["data"]
-        
-        # Paystack returns "pay_offline" when the STK push is sent
-        if data.get("status") == "pay_offline":
+        charge_status = data.get("status")
+
+        # STK push sent — customer needs to enter PIN
+        if charge_status == "pay_offline":
             return {
                 "success": True,
                 "status": "pay_offline",
-                "message": data.get("display_text") or "STK push sent. Enter PIN on your phone.",
+                "message": data.get("display_text")
+                    or "STK push sent. Enter your M-Pesa PIN to complete.",
                 "reference": reference,
                 "pending_id": pending_id,
+                "amount": int(amount),
+                "purpose": purpose,
             }
 
-    data = result["data"]
+        # Rare: charge succeeded immediately (e.g., already-authorized)
+        if charge_status == "success":
+            _fulfill_if_pending(db, reference, data)
+            return {
+                "success": True,
+                "status": "success",
+                "reference": reference,
+                "pending_id": pending_id,
+                "amount": int(amount),
+                "purpose": purpose,
+            }
 
-    return {
-        "success": True,
-        "reference": data["reference"],
-        "access_code": data["access_code"],
-        "authorization_url": data["authorization_url"],
-        "pending_id": pending_id,
-        "amount": int(amount),
-        "purpose": purpose,
-    }
+        # Any other status = failure
+        _mark_failed(db, purpose, pending_id, str(data)[:500])
+        raise HTTPException(502, {
+            "message": f"Charge status: {charge_status}",
+            "response": result,
+        })
 
 
 # ==========================================
