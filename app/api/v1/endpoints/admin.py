@@ -10,7 +10,7 @@ from datetime import datetime
 from ....core.config import settings
 from weasyprint import HTML
 from PIL import Image
-import os, io, re, json, asyncio, time, smtplib, threading, uuid, shutil, subprocess, base64, httpx, csv, traceback
+import os, io, re, json, asyncio, time, smtplib, threading, uuid, shutil, subprocess, base64, httpx, csv, traceback, hmac
 from google import genai
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart

@@ -744,11 +744,11 @@ class SmsTopup(Base):
     school_id = Column(Integer, ForeignKey("schools.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     phone_number = Column(String(20), nullable=False)
-    amount = Column(Integer, nullable=False)            # KSh paid
-    sms_count = Column(Integer, nullable=False)         # SMS credited
+    amount = Column(Integer, nullable=False)
+    sms_count = Column(Integer, nullable=False)
     checkout_request_id = Column(String(100), unique=True, nullable=True)
     mpesa_receipt = Column(String(100), nullable=True)
-    status = Column(String(20), default="pending")      # pending | success | failed | cancelled
+    status = Column(String(20), default="pending")
     result_desc = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
