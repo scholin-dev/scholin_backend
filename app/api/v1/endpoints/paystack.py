@@ -122,7 +122,6 @@ async def paystack_initialize(
 
         result = response.json()
 
-        # Handle Paystack API-level failure
         if response.status_code != 200 or not result.get("status"):
             _mark_failed(
                 db, purpose, pending_id,
@@ -136,7 +135,6 @@ async def paystack_initialize(
         data = result["data"]
         charge_status = data.get("status")
 
-        # STK push sent — customer needs to enter PIN
         if charge_status == "pay_offline":
             return {
                 "success": True,
@@ -149,7 +147,6 @@ async def paystack_initialize(
                 "purpose": purpose,
             }
 
-        # Rare: charge succeeded immediately (e.g., already-authorized)
         if charge_status == "success":
             _fulfill_if_pending(db, reference, data)
             return {
@@ -161,7 +158,6 @@ async def paystack_initialize(
                 "purpose": purpose,
             }
 
-        # Any other status = failure
         _mark_failed(db, purpose, pending_id, str(data)[:500])
         raise HTTPException(502, {
             "message": f"Charge status: {charge_status}",
