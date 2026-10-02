@@ -127,6 +127,7 @@ def get_admin_stats(
 def get_students(
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    class_id: Optional[int] = Query(None),  # ✅ ADD THIS
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -134,9 +135,10 @@ def get_students(
     current_user: User = Depends(get_current_user)
 ):
     query = db.query(Student, User).join(User, Student.user_id == User.id)
-    
+
     if school_id:
         query = query.filter(Student.school_id == school_id)
+
     if current_user.role == "teacher":
         teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
         if teacher:
@@ -144,12 +146,22 @@ def get_students(
                 ClassSubjectTeacher.teacher_id == teacher.id,
                 ClassSubjectTeacher.is_active == True
             ).all()]
-            
+
             if cst_class_ids:
-                query = query.filter(Student.class_id.in_(cst_class_ids))
+                # ✅ If a specific class_id was requested, intersect it with allowed classes
+                if class_id is not None:
+                    if class_id not in cst_class_ids:
+                        raise HTTPException(status_code=403, detail="You don't teach this class")
+                    query = query.filter(Student.class_id == class_id)
+                else:
+                    query = query.filter(Student.class_id.in_(cst_class_ids))
             else:
                 raise HTTPException(status_code=404, detail="no classes found")
-    
+    else:
+        # ✅ For admins/other roles, still respect class_id if provided
+        if class_id is not None:
+            query = query.filter(Student.class_id == class_id)
+
     if search:
         query = query.filter(
             (User.full_name.ilike(f"%{search}%")) |
@@ -160,7 +172,7 @@ def get_students(
         query = query.filter(User.is_active == True)
     elif status == "inactive":
         query = query.filter(User.is_active == False)
-    
+
     total = query.count()
     results = query.offset((page - 1) * limit).limit(limit).all()
     
