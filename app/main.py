@@ -1,22 +1,30 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
+from pathlib import Path
 import os
 import threading
 
 from .core.config import settings
 from .core.database import engine, Base, get_db
 from .api.v1.routes import api_router
-from .core.deps import require_admin  # see note below
+from .core.deps import require_admin
+
 
 # ── Env detection ─────────────────────────────────────────────
 IS_PROD = os.getenv("ENV", "dev").lower() == "prod"
-DOCS_USER = os.getenv("DOCS_USER")
-DOCS_PASS = os.getenv("DOCS_PASS")
+
+# ── Paths ─────────────────────────────────────────────────────
+# app/main.py → parent = app/ → parent.parent = project root
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LANDING_DIR = PROJECT_ROOT / "landing"
+UPLOADS_DIR = PROJECT_ROOT / "uploads"
+
 
 # ── Scheduler ─────────────────────────────────────────────────
 scheduler = BackgroundScheduler()
@@ -67,8 +75,8 @@ def start_scheduler():
         return
     scheduler.add_job(
         auto_expire_assignments,
-        trigger=IntervalTrigger(minutes=120),  # every 2 hours
-        id='auto_expire_assignments',
+        trigger=IntervalTrigger(minutes=120),
+        id="auto_expire_assignments",
         replace_existing=True,
         max_instances=1,
     )
@@ -88,16 +96,15 @@ def start_worker():
     print("✅ Worker started")
 
 
-# ── Lifespan (replaces on_event) ──────────────────────────────
+# ── Lifespan ──────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     Base.metadata.create_all(bind=engine)
+    UPLOADS_DIR.mkdir(exist_ok=True)
     start_worker()
     start_scheduler()
     print("🚀 Application started")
     yield
-    # Shutdown
     stop_scheduler()
     print("👋 Application shutdown")
 
@@ -107,11 +114,11 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     lifespan=lifespan,
-    # Hide interactive docs in prod
     docs_url=None if IS_PROD else "/docs",
     redoc_url=None if IS_PROD else "/redoc",
     openapi_url=None if IS_PROD else "/openapi.json",
 )
+
 
 # ── CORS ──────────────────────────────────────────────────────
 ALLOWED_ORIGINS = [
@@ -120,11 +127,10 @@ ALLOWED_ORIGINS = [
     "https://app.scholin.ke",
 ]
 if not IS_PROD:
-    # Dev only
     ALLOWED_ORIGINS += [
         "http://localhost:3000",
         "http://localhost:8080",
-        "http://10.0.2.2:8000",  # Android emulator
+        "http://10.0.2.2:8000",
     ]
 
 app.add_middleware(
@@ -135,21 +141,46 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
-# ── Routes ────────────────────────────────────────────────────
+
+# ── API Routes ────────────────────────────────────────────────
 app.include_router(api_router, prefix=f"/api/{settings.APP_VERSION}")
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
-# ── Root / Health ─────────────────────────────────────────────
-@app.get("/")
-def root():
-    return {
-        "name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "status": "running",
-    }
+# ── Static mounts ─────────────────────────────────────────────
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+if (LANDING_DIR / "images").exists():
+    app.mount(
+        "/images",
+        StaticFiles(directory=str(LANDING_DIR / "images")),
+        name="landing-images",
+    )
 
 
+# ── Landing pages ─────────────────────────────────────────────
+def _read_landing(filename: str) -> str:
+    path = LANDING_DIR / filename
+    if not path.exists():
+        return f"<h1>404 — {filename} not found</h1>"
+    return path.read_text(encoding="utf-8")
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def landing():
+    return _read_landing("index.html")
+
+
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+def privacy():
+    return _read_landing("privacy.html")
+
+
+@app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+def terms():
+    return _read_landing("terms.html")
+
+
+# ── Health ────────────────────────────────────────────────────
 @app.get("/health")
 def health():
     return {
