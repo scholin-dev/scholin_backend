@@ -260,13 +260,16 @@ async def paystack_webhook(
 # HELPERS
 # ==========================================
 def _normalize_phone(phone: str) -> str:
-    phone = phone.strip()
-    if phone.startswith("07"):
-        return "254" + phone[1:]
+    phone = phone.strip().replace(" ", "").replace("-", "")
+
+    if phone.startswith("0"):
+        return "+254" + phone[1:]
+    if phone.startswith("254"):
+        return "+" + phone
     if phone.startswith("+254"):
-        return phone[1:]
+        return phone
     if phone.startswith("7"):
-        return "254" + phone
+        return "+254" + phone
     return phone
 
 
