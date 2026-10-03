@@ -2453,7 +2453,7 @@ def get_pending_approvals(
     db: Session = Depends(get_db),
     school_id: Optional[int] = Depends(get_current_school_id)
 ):
-    if user.role not in ['admin', 'school'] and user.school_id != school_id:
+    if user.role not in ['admin', 'school'] or user.school_id != school_id:
       raise HTTPException(status_code=403, detail="Not Autorized")
     query = db.query(User).filter(User.approval_status == 'pending')
     
