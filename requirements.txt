@@ -39,3 +39,4 @@ openpyxl
 xlrd
 apscheduler
 python-docx
+brevo
