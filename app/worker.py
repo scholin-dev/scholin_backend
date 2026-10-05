@@ -46,10 +46,12 @@ def send_sms_batch(phones, message, school_id=None, school_name="School"):
         if not school:
             raise Exception("School not found")
 
+        real_name = school.school_name or school_name
+
         for phone in phones:
             if (school.sms_bal or 0) <= 0:
                 raise Exception("Low SMS balance")
-            send_single_sms(phone, message, school.school_name)
+            send_single_sms(phone, message, real_name)
             school.sms_bal -= 1
 
         db.commit()
@@ -93,7 +95,7 @@ def mark_as_failed(db, msg_id, error):
 
 # ── Brevo sender ───────────────────────────────────────────────────────
 def send_single_email(to_email: str, message: str,
-                      school_id=None, school_name) -> bool:
+                      school_id=None, school_name="School") -> bool:
     """Send a single email via Brevo (HTTPS — works on Railway)."""
     api_key = os.getenv("BREVO_API_KEY")
     sender_email = os.getenv("BREVO_SENDER_EMAIL")
@@ -158,7 +160,6 @@ def send_single_sms(phone: str, message: str, school_name: str = "School") -> bo
     phone = _normalize_phone(phone)
     sms = africastalking.SMS
     try:
-        # Optional: prefix school name so recipients know the source
         body = f"{school_name}: {message}" if school_name else message
         sms.send(body, [phone])
         print(f"   ✅ SMS: {phone}")
@@ -172,7 +173,6 @@ def send_single_sms(phone: str, message: str, school_name: str = "School") -> bo
 def process_single_message(msg):
     db = SessionLocal()
     try:
-        # Look up school name once for this message
         school = db.query(School).filter(School.id == msg.school_id).first()
         school_name = school.school_name if school else "School"
 

@@ -7133,13 +7133,14 @@ def send_message(
             status_code=400,
             detail="No valid phone numbers or email addresses found.",
         )
+    school_name = db.query(School.school_name).filter(School.id==user.school_id).first()
 
     # ── Queue sending ──────────────────────────────────────────────────
     if send_method in ['sms', 'both'] and phones:
-        background_tasks.add_task(send_sms_batch, phones, message, school_id)
+        background_tasks.add_task(send_sms_batch, phones, message, school_id, school_name)
 
     if send_method in ['email', 'both'] and emails:
-        background_tasks.add_task(send_email_batch, emails, message, school_id)
+        background_tasks.add_task(send_email_batch, emails, message, school_id, school_name)
 
     return {
         "message": f"Message queued for {len(phones) + len(emails)} recipients",

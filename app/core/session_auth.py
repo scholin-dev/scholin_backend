@@ -88,8 +88,4 @@ async def get_current_user(
     user = db.query(User).filter(User.id == session.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    """for c in user.__table__.columns:
-        value = getattr(user, c.name)
-        print(f" {c.name}: {value}")
-    print(f"===============================\n\n\n\n\n")"""
     return user
