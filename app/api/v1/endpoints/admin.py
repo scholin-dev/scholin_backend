@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request, status, Body, BackgroundTasks
 from fastapi.responses import HTMLResponse, StreamingResponse, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy import case, func, desc, and_, or_, desc
 from datetime import datetime, timedelta, timezone
 from ....models.user import Session as Refresh
@@ -7014,6 +7014,143 @@ def get_sms(user = Depends(get_current_user), db: Session = Depends(get_db)):
 
     return {"balance": school.sms_bal}
 
+# ── Helpers (put these above the route, once) ──────────────────────────
+def _collect_contacts(rows):
+    """Extract deduped phones + emails from DB rows.
+    Prefers parent contact, falls back to student contact."""
+    phones, emails = set(), set()
+    for r in rows:
+        ph = (r.parent_phone or '').strip() or (r.student_phone or '').strip()
+        em = (r.parent_email or '').strip() or (r.student_email or '').strip()
+        if ph:
+            phones.add(ph)
+        if em:
+            emails.add(em)
+    return list(phones), list(emails)
+
+
+def _contact_query(db, school_id):
+    """Student-centric query with optional linked parent.
+    Chain: Student → StudentUser (student phone/email)
+                   → ParentStudent → Parent → ParentUser (parent phone/email)
+    """
+    ParentUser = aliased(User)
+    StudentUser = aliased(User)
+
+    q = (
+        db.query(
+            ParentUser.phone.label('parent_phone'),
+            ParentUser.email.label('parent_email'),
+            StudentUser.phone.label('student_phone'),
+            StudentUser.email.label('student_email'),
+        )
+        .select_from(Student)
+        .join(StudentUser, StudentUser.id == Student.user_id)
+        .outerjoin(ParentStudent, ParentStudent.student_id == Student.id)
+        .outerjoin(Parent, Parent.id == ParentStudent.parent_id)
+        .outerjoin(ParentUser, ParentUser.id == Parent.user_id)
+    )
+    if school_id:
+        q = q.filter(Student.school_id == school_id)
+    return q
+
+
+# ── Route ──────────────────────────────────────────────────────────────
+@router.post("/send-message")
+def send_message(
+    background_tasks: BackgroundTasks,
+    message: str = Body(...),
+    recipient_type: str = Body(...),
+    send_method: Optional[str] = Body(None),
+    student_ids: Optional[List[int]] = Body(None),
+    metadata: Optional[dict] = Body(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    school_id = get_user_school_id(user, db)
+    phones: list = []
+    emails: list = []
+
+    # ── Resolve recipients per mode ────────────────────────────────────
+    if recipient_type == 'all':
+        phones, emails = _collect_contacts(_contact_query(db, school_id).all())
+
+    elif recipient_type == 'debtors':
+        debtor_ids = [
+            d[0]
+            for d in db.query(Fee.student_id)
+            .filter(Fee.status.in_(['pending', 'partial']))
+            .distinct()
+            .all()
+        ]
+        rows = (
+            _contact_query(db, school_id)
+            .filter(Student.id.in_(debtor_ids))
+            .all()
+        )
+        phones, emails = _collect_contacts(rows)
+
+    elif recipient_type == 'specific' and student_ids:
+        rows = (
+            _contact_query(db, school_id)
+            .filter(Student.id.in_(student_ids))
+            .all()
+        )
+        phones, emails = _collect_contacts(rows)
+
+    elif recipient_type == 'importParents':
+        parents = (metadata or {}).get('parents') or []
+        if not parents:
+            raise HTTPException(status_code=400, detail="metadata.parents is empty")
+        phones = list({
+            str(p['phone']).strip()
+            for p in parents
+            if p.get('phone') and str(p['phone']).strip()
+        })
+        emails = list({
+            str(p['email']).strip()
+            for p in parents
+            if p.get('email') and str(p['email']).strip()
+        })
+
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported recipient_type: {recipient_type}",
+        )
+
+    # ── Debug output (remove once stable) ──────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"🐛 /send-message  type={recipient_type}  school_id={school_id}")
+    print(f"🐛 phones={len(phones)}   emails={len(emails)}")
+    print(f"🐛 phones_sample={phones[:5]}")
+    print(f"🐛 emails_sample={emails[:5]}")
+    print(f"{'='*60}\n")
+
+    # ── Validate ───────────────────────────────────────────────────────
+    if not phones and not emails:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid phone numbers or email addresses found.",
+        )
+
+    # ── Queue sending ──────────────────────────────────────────────────
+    if send_method in ['sms', 'both'] and phones:
+        background_tasks.add_task(send_sms_batch, phones, message, school_id)
+
+    if send_method in ['email', 'both'] and emails:
+        background_tasks.add_task(send_email_batch, emails, message, school_id)
+
+    return {
+        "message": f"Message queued for {len(phones) + len(emails)} recipients",
+        "unique_phones": len(phones),
+        "unique_emails": len(emails),
+        "method": send_method,
+        "recipient_type": recipient_type,
+        "status": "queued",
+    }
+
+"""
 @router.post("/send-message")
 def send_message(
     background_tasks: BackgroundTasks,
@@ -7094,7 +7231,7 @@ def send_message(
         "method": send_method,
         "recipient_type": recipient_type,
         "status": "queued"
-    }
+    }"""
     
 @router.post("/extract-parents")
 async def extract_parents(
