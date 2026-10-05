@@ -7119,28 +7119,18 @@ def send_message(
             detail=f"Unsupported recipient_type: {recipient_type}",
         )
 
-    # ── Debug output (remove once stable) ──────────────────────────────
-    print(f"\n{'='*60}")
-    print(f"🐛 /send-message  type={recipient_type}  school_id={school_id}")
-    print(f"🐛 phones={len(phones)}   emails={len(emails)}")
-    print(f"🐛 phones_sample={phones[:5]}")
-    print(f"🐛 emails_sample={emails[:5]}")
-    print(f"{'='*60}\n")
-
     # ── Validate ───────────────────────────────────────────────────────
     if not phones and not emails:
         raise HTTPException(
             status_code=400,
             detail="No valid phone numbers or email addresses found.",
         )
-    school_name = db.query(School.school_name).filter(School.id==user.school_id).first()
-
     # ── Queue sending ──────────────────────────────────────────────────
     if send_method in ['sms', 'both'] and phones:
-        background_tasks.add_task(send_sms_batch, phones, message, school_id, school_name)
+        background_tasks.add_task(send_sms_batch, phones, message, school_id)
 
     if send_method in ['email', 'both'] and emails:
-        background_tasks.add_task(send_email_batch, emails, message, school_id, school_name)
+        background_tasks.add_task(send_email_batch, emails, message, school_id)
 
     return {
         "message": f"Message queued for {len(phones) + len(emails)} recipients",
