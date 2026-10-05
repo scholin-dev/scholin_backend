@@ -1,17 +1,17 @@
-import time, os
-import smtplib, africastalking
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import time, os, re
+import africastalking
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+
+from brevo import Brevo
+from brevo.core.api_error import ApiError
 
 from app.core.database import SessionLocal
 from app.models.message_queue import MessageQueue
 from app.core.config import settings
-
 from app.models.user import School
 
-# Redis/Dramatiq imports
+# ── Redis / Dramatiq (optional) ────────────────────────────────────────
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
 
@@ -20,7 +20,7 @@ africastalking.initialize(
     settings.AT_API_KEY,
 )
 print("🐛 worker.py is being imported", flush=True)
-# Configure Redis broker
+
 try:
     redis_broker = RedisBroker(url=settings.REDIS_URL)
     dramatiq.set_broker(redis_broker)
@@ -28,55 +28,56 @@ try:
 except Exception as e:
     print(f"⚠️ Redis not available: {e}")
     print("   Falling back to ThreadPoolExecutor")
-def send_email_batch(emails, message, school_id):
+
+
+# ── Batch dispatchers ──────────────────────────────────────────────────
+def send_email_batch(emails, message, school_id=None):
     for email in emails:
         try:
             send_single_email(email, message, school_id)
         except Exception as e:
-            print(f"Email failed for {email}: {e}")
+            print(f"   ❌ Email failed for {email}: {e}")
 
 
-def send_sms_batch(phones, message, school_id):
+def send_sms_batch(phones, message, school_id=None):
     db = SessionLocal()
     try:
         school = db.query(School).filter(School.id == school_id).first()
         if not school:
             raise Exception("School not found")
-            
+
         for phone in phones:
-            if school.sms_bal <=0:
+            if (school.sms_bal or 0) <= 0:
                 raise Exception("Low SMS balance")
-            phone = (
-                phone.strip()
-                    .replace(" ", "")
-                    .replace("-", "")
-                    .replace("(", "")
-                    .replace(")", "")
-            )
             send_single_sms(phone, message)
             school.sms_bal -= 1
+
         db.commit()
     except Exception as e:
-        print(f"Exception {e} Occured")
+        print(f"❌ SMS batch failed: {e}")
     finally:
         db.close()
 
+
+# ── Queue helpers ──────────────────────────────────────────────────────
 def get_pending_messages(db, limit=50):
-    """Get pending messages from queue"""
     return db.query(MessageQueue).filter(
         MessageQueue.status == 'pending',
-        MessageQueue.retries < MessageQueue.max_retries
+        MessageQueue.retries < MessageQueue.max_retries,
     ).limit(limit).all()
 
 
 def mark_as_sending(db, msg_id):
-    db.query(MessageQueue).filter(MessageQueue.id == msg_id).update({"status": "sending"})
+    db.query(MessageQueue).filter(MessageQueue.id == msg_id).update(
+        {"status": "sending"}
+    )
     db.commit()
 
 
 def mark_as_sent(db, msg_id):
     db.query(MessageQueue).filter(MessageQueue.id == msg_id).update({
-        "status": "sent", "sent_at": datetime.utcnow()
+        "status": "sent",
+        "sent_at": datetime.utcnow(),
     })
     db.commit()
 
@@ -90,72 +91,95 @@ def mark_as_failed(db, msg_id, error):
         db.commit()
 
 
-import resend
+# ── Brevo sender ───────────────────────────────────────────────────────
+def send_single_email(to_email: str, message: str, school_id=None) -> bool:
+    """Send a single email via Brevo (HTTPS — works on Railway)."""
+    api_key = os.getenv("BREVO_API_KEY")
+    sender_email = os.getenv("BREVO_SENDER_EMAIL")
 
-def send_single_email(to_email: str, message: str, school_id) -> bool:
-    """Send a single email using Resend"""
+    if not api_key or not sender_email:
+        print("   ❌ BREVO_API_KEY or BREVO_SENDER_EMAIL not set")
+        raise RuntimeError("Brevo credentials missing")
+
+    html_body = f"""
+    <html>
+      <body style="font-family:Arial,sans-serif;padding:20px;background:#f9f9f9;">
+        <div style="max-width:600px;margin:auto;background:#ffffff;padding:30px;
+                    border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+          <h2 style="color:#1a237e;margin:0 0 16px;">School Announcement</h2>
+          <p style="font-size:16px;line-height:1.6;color:#333;margin:0 0 16px;">
+            {message.replace(chr(10), '<br>')}
+          </p>
+          <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
+          <p style="color:#999;font-size:12px;margin:0;">
+            This is an automated message from your school.
+          </p>
+        </div>
+      </body>
+    </html>
+    """
+
     try:
-        resend.api_key = os.getenv("RESEND_API_KEY")
-        
-        params = {
-            "from": f"{settings.FROM_NAME} <{settings.FROM_EMAIL}>",
-            "to": [to_email],
-            "subject": f"Message from {settings.FROM_NAME}",
-            "html": f"""
-            <html><body style="font-family: Arial, sans-serif; padding: 20px;">
-                <div style="max-width: 600px; margin: auto; background: #f9f9f9; padding: 30px; border-radius: 10px;">
-                    <h2 style="color: #1a237e;">School Announcement</h2>
-                    <p style="font-size: 16px; line-height: 1.6; color: #333;">{message.replace(chr(10), '<br>')}</p>
-                    <hr style="border: 1px solid #ddd; margin: 20px 0;">
-                    <p style="color: #999; font-size: 12px;">This is an automated message from your school.</p>
-                </div>
-            </body></html>
-            """
-        }
-        
-        r = resend.Emails.send(params)
-        print(f"   ✅ Resend: {to_email} (ID: {r['id']})")
+        client = Brevo(api_key=api_key)
+        response = client.transactional_emails.send_transac_email(
+            sender={"name": "Eduu School", "email": sender_email},
+            to=[{"email": to_email}],
+            subject="Message from Eduu School",
+            html_content=html_body,
+        )
+        print(f"   ✅ Brevo: {to_email} (id={response.message_id})")
         return True
-        
-    except Exception as e:
-        print(f"   ❌ Resend failed: {to_email} - {e}")
+    except ApiError as e:
+        print(f"   ❌ Brevo failed: {to_email} — {e.status_code} {e.body}")
         raise
+    except Exception as e:
+        print(f"   ❌ Brevo failed: {to_email} — {type(e).__name__}: {e}")
+        raise
+
+
+# ── Africa's Talking SMS ───────────────────────────────────────────────
+def _normalize_phone(phone: str) -> str:
+    """Convert Kenyan phone formats to +254XXXXXXXXX."""
+    p = re.sub(r"[^\d+]", "", phone or "")
+    if p.startswith("+254"):
+        return p
+    if p.startswith("254"):
+        return "+" + p
+    if p.startswith("0"):
+        return "+254" + p[1:]
+    if p.startswith("7") or p.startswith("1"):
+        return "+254" + p
+    return p
 
 
 def send_single_sms(phone: str, message: str) -> bool:
-    """Send a single SMS using Africa's Talking"""
-    if phone[2:] != '+25':
-        phone = '+254'+ phone[1:]
+    """Send a single SMS via Africa's Talking."""
+    phone = _normalize_phone(phone)
     sms = africastalking.SMS
     try:
-        response = sms.send(
-            message,
-            [phone],
-        )
-        
+        sms.send(message, [phone])
+        print(f"   ✅ SMS: {phone}")
         return True
-
     except Exception as e:
-        print(f"❌ SMS failed for {phone}")
-        print(e)
+        print(f"   ❌ SMS failed for {phone}: {e}")
         raise
 
 
+# ── Message processor ──────────────────────────────────────────────────
 def process_single_message(msg):
-    """Process a single message from the queue"""
     db = SessionLocal()
     try:
         mark_as_sending(db, msg.id)
-        
+
         if msg.type == 'email' and msg.email:
-            send_single_email(msg.email, msg.message)
+            send_single_email(msg.email, msg.message, msg.school_id)
             mark_as_sent(db, msg.id)
             print(f"   ✅ Email sent to: {msg.email}")
-            
+
         elif msg.type == 'sms' and msg.phone:
             send_single_sms(msg.phone, msg.message)
             mark_as_sent(db, msg.id)
-            
+
     except Exception as e:
         mark_as_failed(db, msg.id, e)
         print(f"   ❌ Failed ({msg.type}): {e}")
@@ -164,26 +188,22 @@ def process_single_message(msg):
 
 
 def process_batch(limit=50, max_workers=10):
-    """Process a batch of pending messages"""
     db = SessionLocal()
     try:
         messages = get_pending_messages(db, limit)
-        
         if not messages:
             return 0
-        
+
         print(f"\n📨 Processing {len(messages)} messages...")
-        
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             executor.map(process_single_message, messages)
-        
+
         return len(messages)
     finally:
         db.close()
 
 
 def get_queue_stats():
-    """Get current queue statistics"""
     db = SessionLocal()
     try:
         pending = db.query(MessageQueue).filter(MessageQueue.status == 'pending').count()
@@ -196,26 +216,27 @@ def get_queue_stats():
 
 
 def run_worker():
-    """Main worker loop - runs forever"""
-    
+    """Main worker loop."""
     last_stats_time = time.time()
-    
+
     while True:
         try:
             processed = process_batch(limit=50, max_workers=10)
-            
+
             if processed > 0:
                 print(f"   ✅ Batch complete: {processed} messages")
-            
-            # Show stats every 60 seconds
+
             if time.time() - last_stats_time > 60:
                 pending, sending, sent, failed = get_queue_stats()
                 if pending + sending + sent + failed > 0:
-                    print(f"\n   📊 Queue Stats: {pending} pending | {sending} sending | {sent} sent | {failed} failed\n")
+                    print(
+                        f"\n   📊 Queue Stats: {pending} pending | "
+                        f"{sending} sending | {sent} sent | {failed} failed\n"
+                    )
                 last_stats_time = time.time()
-            
+
             time.sleep(5)
-            
+
         except KeyboardInterrupt:
             print("\n👋 Worker stopped")
             break
@@ -224,6 +245,5 @@ def run_worker():
             time.sleep(10)
 
 
-# Start worker if run directly
 if __name__ == "__main__":
     run_worker()
