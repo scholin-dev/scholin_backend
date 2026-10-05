@@ -45,14 +45,14 @@ def build_password_reset_html(code: str, full_name: str) -> str:
                     background:linear-gradient(270deg,#0f5132,#198754,#20c997,#0f5132);
                     color:#ffffff;">
           <h1 style="margin:0;font-size:34px;font-weight:700;">Password Reset</h1>
-          <p style="margin-top:10px;opacity:0.9;">Eduu School Management System</p>
+          <p style="margin-top:10px;opacity:0.9;">Scholin' School Management System</p>
         </div>
 
         <!-- Content -->
         <div style="padding:45px;">
           <h2 style="font-size:24px;margin:0 0 20px;">Hello, {full_name} 👋</h2>
           <p style="line-height:1.8;color:#666;">
-            We received a request to reset the password for your Eduu School account.
+            We received a request to reset the password for your Scholin' account.
             Use the secure verification code below to continue.
           </p>
 
@@ -77,7 +77,7 @@ def build_password_reset_html(code: str, full_name: str) -> str:
             <div>
               <h3 style="color:#b45309;margin:0 0 8px;">Security Notice</h3>
               <p style="font-size:14px;color:#8b5e00;margin:0;">
-                Never share this verification code with anyone. Eduu School staff
+                Never share this verification code with anyone. Scholin' staff
                 will never ask for your code. If you didn't request this password
                 reset, ignore this email.
               </p>
@@ -88,7 +88,7 @@ def build_password_reset_html(code: str, full_name: str) -> str:
         <!-- Footer -->
         <div style="padding:35px;text-align:center;background:#fafafa;">
           <p style="margin:0;color:#999;font-size:13px;">
-            © 2026 Eduu School Management<br>Secure • Reliable • Trusted
+            © 2026 Scholin' School Management<br>Secure • Reliable • Trusted
           </p>
         </div>
       </div>
@@ -114,9 +114,9 @@ def send_password_reset_email(to_email: str, code: str, full_name: str = "User")
     try:
         client = Brevo(api_key=api_key)
         response = client.transactional_emails.send_transac_email(
-            sender={"name": "Eduu School", "email": sender_email},
+            sender={"name": "Scholin' Security", "email": sender_email},
             to=[{"email": to_email}],
-            subject="Password Reset - Eduu School",
+            subject="Password Reset - Scholin' Password Reset Code",
             html_content=html_body,
         )
         print(f"✅ Brevo sent to {to_email} (message_id={response.message_id})")
