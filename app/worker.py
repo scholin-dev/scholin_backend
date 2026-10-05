@@ -93,7 +93,7 @@ def mark_as_failed(db, msg_id, error):
 
 # ── Brevo sender ───────────────────────────────────────────────────────
 def send_single_email(to_email: str, message: str,
-                      school_id=None, school_name="School") -> bool:
+                      school_id=None, school_name) -> bool:
     """Send a single email via Brevo (HTTPS — works on Railway)."""
     api_key = os.getenv("BREVO_API_KEY")
     sender_email = os.getenv("BREVO_SENDER_EMAIL")
