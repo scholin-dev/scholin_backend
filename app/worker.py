@@ -31,15 +31,15 @@ except Exception as e:
 
 
 # ── Batch dispatchers ──────────────────────────────────────────────────
-def send_email_batch(emails, message, school_id=None):
+def send_email_batch(emails, message, school_id=None, school_name="School"):
     for email in emails:
         try:
-            send_single_email(email, message, school_id)
+            send_single_email(email, message, school_id, school_name)
         except Exception as e:
             print(f"   ❌ Email failed for {email}: {e}")
 
 
-def send_sms_batch(phones, message, school_id=None):
+def send_sms_batch(phones, message, school_id=None, school_name="School"):
     db = SessionLocal()
     try:
         school = db.query(School).filter(School.id == school_id).first()
@@ -49,7 +49,7 @@ def send_sms_batch(phones, message, school_id=None):
         for phone in phones:
             if (school.sms_bal or 0) <= 0:
                 raise Exception("Low SMS balance")
-            send_single_sms(phone, message)
+            send_single_sms(phone, message, school.school_name)
             school.sms_bal -= 1
 
         db.commit()
@@ -92,7 +92,8 @@ def mark_as_failed(db, msg_id, error):
 
 
 # ── Brevo sender ───────────────────────────────────────────────────────
-def send_single_email(to_email: str, message: str, school_id=None) -> bool:
+def send_single_email(to_email: str, message: str,
+                      school_id=None, school_name="School") -> bool:
     """Send a single email via Brevo (HTTPS — works on Railway)."""
     api_key = os.getenv("BREVO_API_KEY")
     sender_email = os.getenv("BREVO_SENDER_EMAIL")
@@ -106,13 +107,13 @@ def send_single_email(to_email: str, message: str, school_id=None) -> bool:
       <body style="font-family:Arial,sans-serif;padding:20px;background:#f9f9f9;">
         <div style="max-width:600px;margin:auto;background:#ffffff;padding:30px;
                     border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.05);">
-          <h2 style="color:#1a237e;margin:0 0 16px;">School Announcement</h2>
+          <h2 style="color:#1a237e;margin:0 0 16px;">{school_name}</h2>
           <p style="font-size:16px;line-height:1.6;color:#333;margin:0 0 16px;">
             {message.replace(chr(10), '<br>')}
           </p>
           <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
           <p style="color:#999;font-size:12px;margin:0;">
-            This is an automated message from your school.
+            This is an automated message from {school_name}.
           </p>
         </div>
       </body>
@@ -122,9 +123,9 @@ def send_single_email(to_email: str, message: str, school_id=None) -> bool:
     try:
         client = Brevo(api_key=api_key)
         response = client.transactional_emails.send_transac_email(
-            sender={"name": "Eduu School", "email": sender_email},
+            sender={"name": school_name, "email": sender_email},
             to=[{"email": to_email}],
-            subject="Message from Eduu School",
+            subject=f"Message from {school_name}",
             html_content=html_body,
         )
         print(f"   ✅ Brevo: {to_email} (id={response.message_id})")
@@ -152,12 +153,14 @@ def _normalize_phone(phone: str) -> str:
     return p
 
 
-def send_single_sms(phone: str, message: str) -> bool:
+def send_single_sms(phone: str, message: str, school_name: str = "School") -> bool:
     """Send a single SMS via Africa's Talking."""
     phone = _normalize_phone(phone)
     sms = africastalking.SMS
     try:
-        sms.send(message, [phone])
+        # Optional: prefix school name so recipients know the source
+        body = f"{school_name}: {message}" if school_name else message
+        sms.send(body, [phone])
         print(f"   ✅ SMS: {phone}")
         return True
     except Exception as e:
@@ -169,16 +172,21 @@ def send_single_sms(phone: str, message: str) -> bool:
 def process_single_message(msg):
     db = SessionLocal()
     try:
+        # Look up school name once for this message
+        school = db.query(School).filter(School.id == msg.school_id).first()
+        school_name = school.school_name if school else "School"
+
         mark_as_sending(db, msg.id)
 
         if msg.type == 'email' and msg.email:
-            send_single_email(msg.email, msg.message, msg.school_id)
+            send_single_email(msg.email, msg.message, msg.school_id, school_name)
             mark_as_sent(db, msg.id)
             print(f"   ✅ Email sent to: {msg.email}")
 
         elif msg.type == 'sms' and msg.phone:
-            send_single_sms(msg.phone, msg.message)
+            send_single_sms(msg.phone, msg.message, school_name)
             mark_as_sent(db, msg.id)
+            print(f"   ✅ SMS sent to: {msg.phone}")
 
     except Exception as e:
         mark_as_failed(db, msg.id, e)
