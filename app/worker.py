@@ -30,23 +30,40 @@ except Exception as e:
     print("   Falling back to ThreadPoolExecutor")
 
 
+# ── Helper: look up school name ────────────────────────────────────────
+def _school_name(school_id):
+    """Fetch the real school name from the DB, fall back to 'School'."""
+    if not school_id:
+        return "School"
+    db = SessionLocal()
+    try:
+        school = db.query(School).filter(School.id == school_id).first()
+        if school and school.school_name:
+            return school.school_name
+    except Exception as e:
+        print(f"   ⚠️ Could not fetch school name for id={school_id}: {e}")
+    finally:
+        db.close()
+    return "School"
+
+
 # ── Batch dispatchers ──────────────────────────────────────────────────
-def send_email_batch(emails, message, school_id=None, school_name="School"):
+def send_email_batch(emails, message, school_id=None):
     for email in emails:
         try:
-            send_single_email(email, message, school_id, school_name)
+            send_single_email(email, message, school_id)
         except Exception as e:
             print(f"   ❌ Email failed for {email}: {e}")
 
 
-def send_sms_batch(phones, message, school_id=None, school_name="School"):
+def send_sms_batch(phones, message, school_id=None):
     db = SessionLocal()
     try:
         school = db.query(School).filter(School.id == school_id).first()
         if not school:
             raise Exception("School not found")
 
-        real_name = school.school_name or school_name
+        real_name = school.school_name or "School"
 
         for phone in phones:
             if (school.sms_bal or 0) <= 0:
@@ -94,15 +111,16 @@ def mark_as_failed(db, msg_id, error):
 
 
 # ── Brevo sender ───────────────────────────────────────────────────────
-def send_single_email(to_email: str, message: str,
-                      school_id=None, school_name="School") -> bool:
-    """Send a single email via Brevo (HTTPS — works on Railway)."""
+def send_single_email(to_email: str, message: str, school_id=None) -> bool:
+    """Send a single email via Brevo. School name is fetched from the DB."""
     api_key = os.getenv("BREVO_API_KEY")
     sender_email = os.getenv("BREVO_SENDER_EMAIL")
 
     if not api_key or not sender_email:
         print("   ❌ BREVO_API_KEY or BREVO_SENDER_EMAIL not set")
         raise RuntimeError("Brevo credentials missing")
+
+    school_name = _school_name(school_id)
 
     html_body = f"""
     <html>
@@ -173,18 +191,16 @@ def send_single_sms(phone: str, message: str, school_name: str = "School") -> bo
 def process_single_message(msg):
     db = SessionLocal()
     try:
-        school = db.query(School).filter(School.id == msg.school_id).first()
-        school_name = school.school_name if school else "School"
-
         mark_as_sending(db, msg.id)
 
         if msg.type == 'email' and msg.email:
-            send_single_email(msg.email, msg.message, msg.school_id, school_name)
+            send_single_email(msg.email, msg.message, msg.school_id)
             mark_as_sent(db, msg.id)
             print(f"   ✅ Email sent to: {msg.email}")
 
         elif msg.type == 'sms' and msg.phone:
-            send_single_sms(msg.phone, msg.message, school_name)
+            name = _school_name(msg.school_id)
+            send_single_sms(msg.phone, msg.message, name)
             mark_as_sent(db, msg.id)
             print(f"   ✅ SMS sent to: {msg.phone}")
 
