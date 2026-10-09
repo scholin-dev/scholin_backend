@@ -12111,6 +12111,8 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
         GRADE_ORDER = CBC_ORDER
     else:
         GRADE_ORDER = LATE_ORDER
+        
+    print(f"++++++++======================\n {GRADE_ORDER}")
 
     for grade in GRADE_ORDER:
         count = grade_counts.get(grade, 0)
