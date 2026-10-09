@@ -109,6 +109,7 @@ class School(Base):
     signatory_name = Column(String(100), nullable=True)
     signatory_title = Column(String(100), nullable=True)
     sms_bal = Column(Integer, nullable=True)
+    carriculumn = Culumn(String(15), nullable=True)
     
     # Relationships
     classes = relationship("Class", back_populates="school")

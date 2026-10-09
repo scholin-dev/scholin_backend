@@ -5443,6 +5443,7 @@ async def teacher_results(
                 detail="You are not assigned to this class",
             )
         subject_name = assignments[0].subject
+    school = adb.query(School).filter(School.id==user.school_id).first()
 
     # ── Fetch scores ──
     scores = (
@@ -5530,7 +5531,7 @@ async def teacher_results(
             "End Term": end_term,
         }
 
-        if include_total:
+        if include_total and school.carriculumn=="844":
             result["total"] = total
             result["average"] = average
 
@@ -5558,6 +5559,26 @@ async def teacher_results(
                 result["grade"] = "D-"
             else:
                 result["grade"] = "E"
+        else:
+            result["total"] = total
+            result["average"] = average
+            
+            if average >= 90:
+                result["grade"] = "EE1"
+            elif average >= 75:
+                result["grade"] = "EE2"
+            elif average >= 58:
+                result["grade"] = "ME1"
+            elif average >= 41:
+                result["grade"] = "ME2"
+            elif average >= 31:
+                result["grade"] = "AE1"
+            elif average >= 21:
+                result["grade"] = "AE2"
+            elif average >= 11:
+                result["grade"] = "BE1"
+            else
+                result["grade"] = "BE2"
 
         results.append(result)
 
@@ -12072,7 +12093,8 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
             <td class="bold">{grade}</td>
         </tr>
         """
-    GRADE_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]
+    844_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]
+    CBC_ORDER = ["EE1", "EE2", "ME1", "ME2", "AE1", "AE2", "BE1", "BE2"]
 
     # Count grades
     grade_counts = Counter(
@@ -12084,6 +12106,11 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
 
     # Build the rows
     grade_dist_rows = ""
+    if school.carriculumn == "cbc":
+        GRADE_ORDER = CBC_ORDER
+    else:
+        GRADE_ORDER = 844_ORDER
+
     for grade in GRADE_ORDER:
         count = grade_counts.get(grade, 0)
         pct = (count / total_graded * 100) if total_graded > 0 else 0.0
@@ -12100,23 +12127,33 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
     
     if class_mean_grade == 'A':
         remarks = "Exceptional performance! You have demonstrated a thorough mastery of the concepts. Keep up the brilliant work"
+    elif class_mean_grade == 'EE1':
+        remarks = "Exceptional performance! You have demonstrated a thorough mastery of the concepts. Keep up the brilliant work"
     elif class_mean_grade == 'A-':
         remarks = "Very impressive performance. With just a little more consistency, you can easily secure a straight A"
+    elif class_mean_grade == 'EE2':
+        remarks = "Very impressive performance. With just a little more
     elif class_mean_grade == 'B+':
+        remarks = "Good work overall. A bit more focus on refining your problem-solving skills will elevate your grade even further."
+    elif class_mean_grade == 'ME1':
         remarks = "Good work overall. A bit more focus on refining your problem-solving skills will elevate your grade even further."
     elif class_mean_grade == 'B':
         remarks = "Solid performance. You are demonstrating good understanding, though some key areas still need reinforcement."
     elif class_mean_grade == 'B-':
         remarks = "Fair effort with steady progress. Identify your weaker topics and focus your revision on those specific areas."
+    elif class_mean_grade == 'ME2':
+        remarks = "Fair effort with steady progress. Identify your weaker topics and focus your revision on those specific areas."
     elif class_mean_grade == 'C+':
         remarks = "Satisfactory effort. You have achieved a basic grasp of the concepts, but consistent revision is needed to improve."
     elif class_mean_grade == 'C':
-        remarks = "Adequate work, but there is substantial room for improvement. Regular practice will help boost your confidence and marks."
+        remarks = "Adequate work, but there is substantial room for improvement. Regular practice will help you boost your confidence and marks."
     elif class_mean_grade == 'C-':
         remarks = "Below target performance. Immediate attention, structured revision, and extra guidance are required to build your foundational understanding."
     elif class_mean_grade == 'D+':
         remarks = "Stronger effort required. You are struggling with foundational concepts. Reach out for extra guidance and dedicate time to daily practice"
     elif class_mean_grade == 'D':
+        remarks = "Needs improvement. While you show occasional understanding, inconsistent preparation is holding you back. Focus on mastering the core syllabus topics."
+    elif class_mean_grade == 'BE1':
         remarks = "Needs improvement. While you show occasional understanding, inconsistent preparation is holding you back. Focus on mastering the core syllabus topics."
     elif class_mean_grade == 'D-':
         remarks = "Poor expectations. Step up your revision routine and seek immediate assistance on difficult subjects to prevent falling further behind."
@@ -12709,7 +12746,9 @@ def get_stream_results(
         </tr>
         """
 
-    GRADE_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]
+    844_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]
+    CBC_ORDER = ["EE1", "EE2", "ME1", "ME2", "AE1", "AE2", "BE1", "BE2"]
+    
     grade_counts = Counter(
         st["grade"] for st in students
         if st["grade"] and st["grade"] != "—"
@@ -12717,6 +12756,12 @@ def get_stream_results(
     total_graded = sum(grade_counts.values())
 
     grade_dist_rows = ""
+    
+    if school.carriculumn == "cbc":
+        GRADE_ORDER = CBC_ORDER
+    else:
+        GRADE_ORDER = 844_ORDER
+        
     for grade in GRADE_ORDER:
         count = grade_counts.get(grade, 0)
         pct = (count / total_graded * 100) if total_graded > 0 else 0.0
@@ -12734,13 +12779,21 @@ def get_stream_results(
 
     if class_mean_grade == 'A':
         remarks = "Exceptional performance! You have demonstrated a thorough mastery of the concepts. Keep up the brilliant work"
+    elif class_mean_grade == 'EE1':
+        remarks = "Exceptional performance! You have demonstrated a thorough mastery of the concepts. Keep up the brilliant work"
     elif class_mean_grade == 'A-':
         remarks = "Very impressive performance. With just a little more consistency, you can easily secure a straight A"
+    elif class_mean_grade == 'EE2':
+        remarks = "Very impressive performance. With just a little more
     elif class_mean_grade == 'B+':
+        remarks = "Good work overall. A bit more focus on refining your problem-solving skills will elevate your grade even further."
+    elif class_mean_grade == 'ME1':
         remarks = "Good work overall. A bit more focus on refining your problem-solving skills will elevate your grade even further."
     elif class_mean_grade == 'B':
         remarks = "Solid performance. You are demonstrating good understanding, though some key areas still need reinforcement."
     elif class_mean_grade == 'B-':
+        remarks = "Fair effort with steady progress. Identify your weaker topics and focus your revision on those specific areas."
+    elif class_mean_grade == 'ME2':
         remarks = "Fair effort with steady progress. Identify your weaker topics and focus your revision on those specific areas."
     elif class_mean_grade == 'C+':
         remarks = "Satisfactory effort. You have achieved a basic grasp of the concepts, but consistent revision is needed to improve."
@@ -12751,6 +12804,8 @@ def get_stream_results(
     elif class_mean_grade == 'D+':
         remarks = "Stronger effort required. You are struggling with foundational concepts. Reach out for extra guidance and dedicate time to daily practice"
     elif class_mean_grade == 'D':
+        remarks = "Needs improvement. While you show occasional understanding, inconsistent preparation is holding you back. Focus on mastering the core syllabus topics."
+    elif class_mean_grade == 'BE1':
         remarks = "Needs improvement. While you show occasional understanding, inconsistent preparation is holding you back. Focus on mastering the core syllabus topics."
     elif class_mean_grade == 'D-':
         remarks = "Poor expectations. Step up your revision routine and seek immediate assistance on difficult subjects to prevent falling further behind."
