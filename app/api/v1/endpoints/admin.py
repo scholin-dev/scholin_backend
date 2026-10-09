@@ -5531,7 +5531,7 @@ async def teacher_results(
             "End Term": end_term,
         }
 
-        if include_total and school.carriculumn=="844":
+        if include_total and school.carriculumn=="LATE":
             result["total"] = total
             result["average"] = average
 
@@ -12093,7 +12093,7 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
             <td class="bold">{grade}</td>
         </tr>
         """
-    844_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]
+    LATE_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]
     CBC_ORDER = ["EE1", "EE2", "ME1", "ME2", "AE1", "AE2", "BE1", "BE2"]
 
     # Count grades
@@ -12109,7 +12109,7 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
     if school.carriculumn == "cbc":
         GRADE_ORDER = CBC_ORDER
     else:
-        GRADE_ORDER = 844_ORDER
+        GRADE_ORDER = LATE_ORDER
 
     for grade in GRADE_ORDER:
         count = grade_counts.get(grade, 0)
@@ -12746,7 +12746,7 @@ def get_stream_results(
         </tr>
         """
 
-    844_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]
+    LATE_ORDER = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]
     CBC_ORDER = ["EE1", "EE2", "ME1", "ME2", "AE1", "AE2", "BE1", "BE2"]
     
     grade_counts = Counter(
@@ -12760,7 +12760,7 @@ def get_stream_results(
     if school.carriculumn == "cbc":
         GRADE_ORDER = CBC_ORDER
     else:
-        GRADE_ORDER = 844_ORDER
+        GRADE_ORDER = LATE_ORDER
         
     for grade in GRADE_ORDER:
         count = grade_counts.get(grade, 0)
