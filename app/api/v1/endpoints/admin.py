@@ -5577,7 +5577,7 @@ async def teacher_results(
                 result["grade"] = "AE2"
             elif average >= 11:
                 result["grade"] = "BE1"
-            else
+            else:
                 result["grade"] = "BE2"
 
         results.append(result)
