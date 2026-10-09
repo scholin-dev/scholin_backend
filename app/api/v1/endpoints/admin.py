@@ -5555,13 +5555,13 @@ async def teacher_results(
             "student_id": student_id,
             "student_name": data["student_name"],
             "admission_number": data["admission_number"],
-            "adm_no": data["admission_number"],   # alias for Flutter
+            "adm_no": data["admission_number"],
             "Opener": cat1,
             "Midterm": cat2,
             "End Term": end_term,
         }
 
-        if include_total and school.carriculumn=="LATE":
+        if include_total and school.carriculumn=="844":
             result["total"] = total
             result["average"] = average
 
