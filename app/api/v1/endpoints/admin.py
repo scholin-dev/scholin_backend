@@ -5473,7 +5473,7 @@ async def teacher_results(
                 detail="You are not assigned to this class",
             )
         subject_name = assignments[0].subject
-    school = adb.query(School).filter(School.id==user.school_id).first()
+    school = db.query(School).filter(School.id==user.school_id).first()
 
     # ── Fetch scores ──
     scores = (
