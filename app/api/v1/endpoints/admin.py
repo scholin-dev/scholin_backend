@@ -12106,6 +12106,7 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
 
     # Build the rows
     grade_dist_rows = ""
+    print(f"++++++++======================\n {school.carriculumn}")
     if school.carriculumn == "cbc":
         GRADE_ORDER = CBC_ORDER
     else:
