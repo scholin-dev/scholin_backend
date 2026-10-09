@@ -12132,7 +12132,7 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
     elif class_mean_grade == 'A-':
         remarks = "Very impressive performance. With just a little more consistency, you can easily secure a straight A"
     elif class_mean_grade == 'EE2':
-        remarks = "Very impressive performance. With just a little more
+        remarks = "Very impressive performance. With just a little more consistency, you can easily secure a straight EE1"
     elif class_mean_grade == 'B+':
         remarks = "Good work overall. A bit more focus on refining your problem-solving skills will elevate your grade even further."
     elif class_mean_grade == 'ME1':
