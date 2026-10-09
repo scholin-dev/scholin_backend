@@ -90,6 +90,23 @@ def _grade_from_percent(pct: float) -> str:
     if pct >= 30:
         return "D-"
     return "E"
+    
+def cbc_grade_from_percent(pct: float) -> str:
+    if pct >= 90:
+        return "EE1"
+    if pct >= 75:
+        return "EE2"
+    if pct >= 58:
+        return "ME1"
+    if pct >= 41:
+        return "ME2"
+    if pct >= 31:
+        return "AE1"
+    if pct >= 21:
+        return "AE2"
+    if pct >= 11:
+        return "BE1"
+    return "BE2"
 
 # Replace the stats endpoint at the top of admin.py
 @router.get("/stats/{school_id}")
@@ -3981,6 +3998,7 @@ def get_student_performance(
         student = db.query(Student).filter(Student.id == student_id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
+    school = db.query(School).filter(School.id==user.school_id).first()
 
     # ----------------------------
     # Access control
@@ -4069,11 +4087,16 @@ def get_student_performance(
                 sum(s["score"] for s in subjects) / len(subjects), 1
             )
 
-    term_grades = {
-        t: _grade_from_percent(avg)
-        for t, avg in term_averages.items()
-    }
-
+    if school.carriculumn == "cbc":
+        term_grades = {
+            t: cbc_grade_from_percent(avg)
+            for t, avg in term_averages.items()
+        }
+    else:
+        term_grades = {
+            t: _grade_from_percent(avg)
+            for t, avg in term_averages.items()
+        }
     # ----------------------------
     # Overall average + overall grade
     # ----------------------------
@@ -4081,7 +4104,10 @@ def get_student_performance(
         round(sum(term_averages.values()) / len(term_averages), 1)
         if term_averages else 0
     )
-    overall_grade = _grade_from_percent(overall_average) if term_averages else "—"
+    if school.carriculumn == "cbc":
+        overall_grade = cbc_grade_from_percent(overall_average) if term_averages else "—"
+    else:
+        overall_grade = _grade_from_percent(overall_average) if term_averages else "—"
 
     return {
         "student": {
@@ -4281,6 +4307,7 @@ def get_teacher_dashboard(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Single query to get teacher and user info
+    school = db.query(School).filter(School.id==user.school_id).first()
     teacher_data = (
         db.query(Teacher, User)
         .join(User, User.id == Teacher.user_id)
@@ -4378,9 +4405,12 @@ def get_teacher_dashboard(
 
         term_mean = db.query(func.avg(student_avg.c.avg_score)).scalar()
 
-        if term_mean is not None:
+        if term_mean is not None and school.carriculumn != "cbc":
             ct_mean_score = round(float(term_mean), 2)
             ct_mean_grade = _grade_from_percent(ct_mean_score)
+        else:
+            ct_mean_score = round(float(term_mean), 2)
+            ct_mean_grade = cbc_grade_from_percent(ct_mean_score)
 
     # ── Assignment stats
     assignment_stats = db.query(
@@ -11995,15 +12025,26 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
     students = []
     for sid, e in by_student.items():
         avg = sum(e["scores"]) / len(e["scores"]) if e["scores"] else None
-        students.append({
-            "id": e["id"],
-            "admission_number": e["admission_number"],
-            "name": e["name"],
-            "subjects": e["subjects"],
-            "average": round(avg, 2) if avg is not None else None,
-            "grade": _grade_from_percent(avg) if avg is not None else "—",
-            "subjects_count": len(e["subjects"]),
-        })
+        if school.carriculumn != "cbc":
+            students.append({
+                "id": e["id"],
+                "admission_number": e["admission_number"],
+                "name": e["name"],
+                "subjects": e["subjects"],
+                "average": round(avg, 2) if avg is not None else None,
+                "grade": _grade_from_percent(avg) if avg is not None else "—",
+                "subjects_count": len(e["subjects"]),
+            })
+        else:
+            students.append({
+                "id": e["id"],
+                "admission_number": e["admission_number"],
+                "name": e["name"],
+                "subjects": e["subjects"],
+                "average": round(avg, 2) if avg is not None else None,
+                "grade": cbc_grade_from_percent(avg) if avg is not None else "—",
+                "subjects_count": len(e["subjects"]),
+            })
 
     # ── Sort by performance (top first, ungraded last)
     students.sort(
@@ -12081,7 +12122,10 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
         scores = subject_scores.get(subj, [])
         if scores:
             mean = round(sum(scores) / len(scores), 1)
-            grade = _grade_from_percent(mean)
+            if school.carriculumn != "cbc":
+                grade = _grade_from_percent(mean)
+            else:
+                grade = cbc_grade_from_percent(mean)
         else:
             mean = "—"
             grade = "—"
@@ -12126,7 +12170,10 @@ def get_class_Results(user=Depends(get_current_user), db: Session = Depends(get_
         """
     graded = [s["average"] for s in students if s["average"] is not None]
     class_mean = round(sum(graded) / len(graded), 1) if graded else None
-    class_mean_grade = _grade_from_percent(class_mean) if class_mean is not None else "—"
+    if school.carriculumn != "cbc":
+        class_mean_grade = _grade_from_percent(class_mean) if class_mean is not None else "—"
+    else:
+        class_mean_grade = cbc_grade_from_percent(class_mean) if class_mean is not None else "—"
     
     if class_mean_grade == 'A':
         remarks = "Exceptional performance! You have demonstrated a thorough mastery of the concepts. Keep up the brilliant work"
@@ -12677,15 +12724,26 @@ def get_stream_results(
     students = []
     for sid, e in by_student.items():
         avg = sum(e["scores"]) / len(e["scores"]) if e["scores"] else None
-        students.append({
-            "id": e["id"],
-            "admission_number": e["admission_number"],
-            "name": e["name"],
-            "subjects": e["subjects"],
-            "average": round(avg, 2) if avg is not None else None,
-            "grade": _grade_from_percent(avg) if avg is not None else "—",
-            "subjects_count": len(e["subjects"]),
-        })
+        if school.carriculumn != "cbc":
+            students.append({
+                "id": e["id"],
+                "admission_number": e["admission_number"],
+                "name": e["name"],
+                "subjects": e["subjects"],
+                "average": round(avg, 2) if avg is not None else None,
+                "grade": _grade_from_percent(avg) if avg is not None else "—",
+                "subjects_count": len(e["subjects"]),
+            })
+        else:
+            students.append({
+                "id": e["id"],
+                "admission_number": e["admission_number"],
+                "name": e["name"],
+                "subjects": e["subjects"],
+                "average": round(avg, 2) if avg is not None else None,
+                "grade": cbc_grade_from_percent(avg) if avg is not None else "—",
+                "subjects_count": len(e["subjects"]),
+            })
 
     students.sort(
         key=lambda s: (
@@ -12736,7 +12794,10 @@ def get_stream_results(
         scores = subject_scores.get(subj, [])
         if scores:
             mean = round(sum(scores) / len(scores), 1)
-            grade = _grade_from_percent(mean)
+            if school.carriculumn != "cbc":
+                grade = _grade_from_percent(mean)
+            else:
+                grade = cbc_grade_from_percent(mean)
         else:
             mean = "—"
             grade = "—"
@@ -12778,7 +12839,10 @@ def get_stream_results(
 
     graded = [s["average"] for s in students if s["average"] is not None]
     class_mean = round(sum(graded) / len(graded), 1) if graded else None
-    class_mean_grade = _grade_from_percent(class_mean) if class_mean is not None else "—"
+    if school.carriculumn != "cbc":
+        class_mean_grade = _grade_from_percent(class_mean) if class_mean is not None else "—"
+    else:
+        class_mean_grade = cbc_grade_from_percent(class_mean) if class_mean is not None else "—"
 
     if class_mean_grade == 'A':
         remarks = "Exceptional performance! You have demonstrated a thorough mastery of the concepts. Keep up the brilliant work"
