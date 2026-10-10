@@ -85,7 +85,8 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
             user_id=db_user.id,
             school_name=user_data.school_name,
             address=user_data.address,
-            school_type=user_data.school_type
+            school_type=user_data.school_type,
+            carriculumn=user_data.curriculumn
         )
         db.add(profile)
         db.flush()
