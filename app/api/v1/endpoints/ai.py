@@ -25,9 +25,12 @@ async def generate_lesson(req: LessonRequest, user = Depends(get_current_user)):
 
     Return the response in this exact JSON format with no extra text or markdown formatting:
     {{
-      "objectives": "1. ...\\n2. ...\\n3. ...",
-      "introduction": "A short engaging introduction...",
-      "main_lesson": "Detailed steps, explanations, and examples...",
+      "objectives": 
+        "1. ...
+        2. ...
+        3. ...",
+      "introduction": "A short engaging introduction...followed by example",
+      "main_lesson": "Detailed steps by step and jokes also related to topic, explanations, and examples...list them in numbers",
       "practice_questions": "3-5 practice questions with answers..."
     }}
     """
