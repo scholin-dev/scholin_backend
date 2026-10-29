@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import httpx
 import json
 import os
-from app.core.deps import get_current_user
+from ....core.session_auth import get_current_user
 
 router = APIRouter(prefix="/ai", tags=["Ai"])
 
