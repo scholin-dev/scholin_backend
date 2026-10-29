@@ -31,10 +31,22 @@ async def generate_lesson(req: LessonRequest, user = Depends(get_current_user)):
 
     Return this exact JSON structure:
     {{
-      "objectives": "1. First objective\\n2. Second objective\\n3. Third objective",
+      "objectives": "
+      1. First objective
+      2. Second objective
+      3. Third objective",
       "introduction": "A short engaging introduction... followed by a real-world example.",
-      "main_lesson": "1. Step one explanation.\\n2. Step two explanation.\\n3. Include a light-hearted joke related to the topic here.\\n4. Step three explanation.",
-      "practice_questions": "1. Question one?\\nAnswer: Answer one.\\n\\n2. Question two?\\nAnswer: Answer two."
+      "main_lesson": "
+      1. Step one explanation.
+      2. Step two explanation.
+      3. Include a light-hearted joke related to the topic here.
+      4. Step three explanation.",
+      "practice_questions": "
+      1. Question one?
+      Answer: Answer one.
+      
+      2. Question two?
+      Answer: Answer two."
     }}
     """
     
