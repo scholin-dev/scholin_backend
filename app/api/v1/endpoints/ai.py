@@ -4,11 +4,9 @@ import httpx
 import json
 import os
 
-router = APIRouter(prefix="/ai", tags=["AI"])
+router = APIRouter(prefix="/ai", tags=["Ai"])
 
-# Use Railway's private network for the Ollama service
 OLLAMA_URL = "http://ollama.railway.internal:11434/api/generate"
-# Use the thread-capped model you just created!
 OLLAMA_MODEL = "llama3.2:1b-cpu8"
 
 class LessonRequest(BaseModel):
