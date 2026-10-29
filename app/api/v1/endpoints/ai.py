@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import httpx
 import json
 import os
+from app.core.deps import get_current_user
 
 router = APIRouter(prefix="/ai", tags=["Ai"])
 
@@ -14,7 +15,7 @@ class LessonRequest(BaseModel):
     subject: str
     class_name: str
 
-@router.post("/ai/generate-lesson")
+@router.post("/generate-lesson")
 async def generate_lesson(req: LessonRequest, user = Depends(get_current_user)):
     prompt = f"""
     You are an expert teacher. Create a detailed lesson plan for:
