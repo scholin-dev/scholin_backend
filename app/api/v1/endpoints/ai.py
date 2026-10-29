@@ -23,15 +23,18 @@ async def generate_lesson(req: LessonRequest, user = Depends(get_current_user)):
     Subject: {req.subject}
     Class: {req.class_name}
 
-    Return the response in this exact JSON format with no extra text or markdown formatting:
+    CRITICAL RULES:
+    1. Return ONLY a valid JSON object. Do not wrap it in markdown code blocks.
+    2. Do NOT use arrays. Every value must be a single string.
+    3. Use \\n to create line breaks inside the strings.
+    4. Do NOT use complex LaTeX math symbols. Use plain text for math (e.g., "x squared").
+
+    Return this exact JSON structure:
     {{
-      "objectives": 
-        "1. ...
-        2. ...
-        3. ...",
-      "introduction": "A short engaging introduction...followed by example",
-      "main_lesson": "Detailed steps by step and jokes also related to topic, explanations, and examples...list them in numbers",
-      "practice_questions": "3-5 practice questions with answers..."
+      "objectives": "1. First objective\\n2. Second objective\\n3. Third objective",
+      "introduction": "A short engaging introduction... followed by a real-world example.",
+      "main_lesson": "1. Step one explanation.\\n2. Step two explanation.\\n3. Include a light-hearted joke related to the topic here.\\n4. Step three explanation.",
+      "practice_questions": "1. Question one?\\nAnswer: Answer one.\\n\\n2. Question two?\\nAnswer: Answer two."
     }}
     """
     
